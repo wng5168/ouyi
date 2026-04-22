@@ -9,12 +9,12 @@
     <style>
         body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; }
         #reader { width: 100%; height: 100vh; }
-        #info { position: fixed; bottom: 20px; width: 100%; text-align: center; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px #000; }
+        #info { position: fixed; bottom: 20px; width: 100%; text-align: center; z-index: 10; font-size: 14px; }
     </style>
 </head>
 <body>
     <div id="reader"></div>
-    <div id="info">正在初始化高清扫描引擎...</div>
+    <div id="info">正在启动高清扫描引擎...</div>
 
     <script>
         const tg = window.Telegram.WebApp;
@@ -24,47 +24,51 @@
         const html5QrCode = new Html5Qrcode("reader");
         const config = { 
             fps: 20, 
-            qrbox: { width: 280, height: 200 }, // 矩形框比例，更有利于捕捉长条形码
+            qrbox: { width: 280, height: 200 }, // 矩形框更适合长条形码
             aspectRatio: 1.0 
         };
 
-        // 扫码成功的回调逻辑
-        const onScanSuccess = (decodedText) => {
-            document.getElementById("info").innerText = "识别成功: " + decodedText;
-            // 识别后立即停止摄像头，释放资源
-            html5QrCode.stop().then(() => {
-                tg.sendData(decodedText); // 将结果回传给 Telegram 机器人
-                tg.close(); // 自动关闭扫码页面
-            }).catch(err => {
-                tg.sendData(decodedText);
-                tg.close();
-            });
-        };
-
-        // 启动扫描器的函数
-        async function startScanner() {
+        // --- 核心优化逻辑：权限预检与启动封装 ---
+        async function initScanner() {
             try {
-                // 尝试触发浏览器对摄像头权限的记忆
+                // 1. 尝试触发浏览器对权限状态的静默查询
+                // 这一步能让某些 Webview 内核意识到该域名已在系统层授权
                 if (navigator.permissions && navigator.permissions.query) {
-                    const status = await navigator.permissions.query({ name: 'camera' });
-                    console.log("当前摄像头权限状态:", status.state);
+                    try {
+                        const result = await navigator.permissions.query({ name: 'camera' });
+                        console.log("当前相机权限状态: " + result.state);
+                    } catch (pErr) {
+                        console.log("权限查询暂不支持");
+                    }
                 }
 
+                // 2. 启动摄像头
                 await html5QrCode.start(
-                    { facingMode: "environment" }, // 强制调用后置摄像头
+                    { facingMode: "environment" }, 
                     config,
-                    onScanSuccess,
-                    (errorMessage) => { /* 扫描过程中的常规噪音，不予处理 */ }
+                    (decodedText) => {
+                        // 识别成功处理
+                        document.getElementById("info").innerText = "识别成功: " + decodedText;
+                        html5QrCode.stop().then(() => {
+                            tg.sendData(decodedText); // 发送数据回机器人
+                            tg.close(); // 自动关闭
+                        }).catch(() => {
+                            tg.sendData(decodedText);
+                            tg.close();
+                        });
+                    },
+                    (errorMessage) => { /* 过滤扫描过程中的解析噪音 */ }
                 );
+                
                 document.getElementById("info").innerText = "请对准产品条码或库位码";
             } catch (err) {
-                console.error("启动失败:", err);
-                document.getElementById("info").innerText = "摄像头启动失败，请在设置中允许访问相机";
+                console.error("摄像头启动失败: ", err);
+                document.getElementById("info").innerText = "摄像头启动失败，请确保已授予权限并使用 HTTPS 访问";
             }
         }
 
-        // 执行启动
-        startScanner();
+        // 页面加载后立即执行
+        initScanner();
     </script>
 </body>
 </html>
