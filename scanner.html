@@ -3,72 +3,84 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>极速专业扫码</title>
+    <title>极速连续扫码作业</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; }
+        body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; font-family: sans-serif; }
         #reader { width: 100%; height: 100vh; }
-        #info { position: fixed; bottom: 20px; width: 100%; text-align: center; z-index: 10; font-size: 14px; }
+        
+        /* 底部悬浮操控台 UI */
+        .control-panel { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(20, 20, 20, 0.95); padding: 25px 0 35px 0; z-index: 10; border-top-left-radius: 20px; border-top-right-radius: 20px; box-shadow: 0 -4px 10px rgba(0,0,0,0.5); }
+        #info { font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff; line-height: 1.5; }
+        .highlight { color: #FFD700; font-size: 20px; } /* 高亮产品码 */
+        
+        /* 取消按钮样式 */
+        .btn-cancel { background: #444; color: white; border: 1px solid #666; padding: 12px 35px; font-size: 16px; border-radius: 30px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .btn-cancel:active { background: #666; }
     </style>
 </head>
 <body>
     <div id="reader"></div>
-    <div id="info">正在启动高清扫描引擎...</div>
+    
+    <div class="control-panel">
+        <div id="info">第一步：请扫描 <span style="color:#00e676;">【产品条码】</span></div>
+        <button class="btn-cancel" onclick="tg.close()">❌ 取消并返回</button>
+    </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        tg.expand(); // 自动展开 WebApp 至全屏
+        tg.expand();
 
         const html5QrCode = new Html5Qrcode("reader");
-        const config = { 
-            fps: 20, 
-            qrbox: { width: 280, height: 200 }, // 矩形框更适合长条形码
-            aspectRatio: 1.0 
+        const config = { fps: 20, qrbox: { width: 280, height: 200 }, aspectRatio: 1.0 };
+        
+        // --- 核心：状态机变量 ---
+        let currentStep = 1; 
+        let scannedProduct = "";
+
+        const onScanSuccess = (decodedText) => {
+            if (currentStep === 1) {
+                // 【完成第一步】记录产品码，准备扫库位码
+                scannedProduct = decodedText;
+                currentStep = 2;
+                
+                // 更新 UI 提示
+                document.getElementById("info").innerHTML = `已锁定产品: <span class="highlight">${scannedProduct}</span><br>第二步：请扫描 <span style="color:#2196F3;">【新库位码】</span>`;
+                
+                // ⚠️ 关键技巧：暂停扫描器 1.5 秒，防止用户还没移开手，就把刚才的码当成库位码又扫了一遍
+                html5QrCode.pause();
+                setTimeout(() => { html5QrCode.resume(); }, 1500);
+
+            } else if (currentStep === 2) {
+                // 【完成第二步】拿到库位码
+                let locationCode = decodedText;
+                document.getElementById("info").innerText = "数据处理中，请稍候...";
+                
+                // 将两个码打包成一条专有指令，例如： MOVE_LOC|产品码|库位码
+                let payload = `MOVE_LOC|${scannedProduct}|${locationCode}`;
+                
+                // 停止摄像头并发送回 Telegram（发送后 Web App 会自动关闭）
+                html5QrCode.stop().then(() => {
+                    tg.sendData(payload);
+                    tg.close();
+                }).catch(() => {
+                    tg.sendData(payload);
+                    tg.close();
+                });
+            }
         };
 
-        // --- 核心优化逻辑：权限预检与启动封装 ---
-        async function initScanner() {
+        async function startScanner() {
             try {
-                // 1. 尝试触发浏览器对权限状态的静默查询
-                // 这一步能让某些 Webview 内核意识到该域名已在系统层授权
-                if (navigator.permissions && navigator.permissions.query) {
-                    try {
-                        const result = await navigator.permissions.query({ name: 'camera' });
-                        console.log("当前相机权限状态: " + result.state);
-                    } catch (pErr) {
-                        console.log("权限查询暂不支持");
-                    }
-                }
-
-                // 2. 启动摄像头
-                await html5QrCode.start(
-                    { facingMode: "environment" }, 
-                    config,
-                    (decodedText) => {
-                        // 识别成功处理
-                        document.getElementById("info").innerText = "识别成功: " + decodedText;
-                        html5QrCode.stop().then(() => {
-                            tg.sendData(decodedText); // 发送数据回机器人
-                            tg.close(); // 自动关闭
-                        }).catch(() => {
-                            tg.sendData(decodedText);
-                            tg.close();
-                        });
-                    },
-                    (errorMessage) => { /* 过滤扫描过程中的解析噪音 */ }
-                );
-                
-                document.getElementById("info").innerText = "请对准产品条码或库位码";
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
             } catch (err) {
-                console.error("摄像头启动失败: ", err);
-                document.getElementById("info").innerText = "摄像头启动失败，请确保已授予权限并使用 HTTPS 访问";
+                document.getElementById("info").innerText = "摄像头启动失败，请检查系统权限";
             }
         }
 
-        // 页面加载后立即执行
-        initScanner();
+        startScanner();
     </script>
 </body>
 </html>
