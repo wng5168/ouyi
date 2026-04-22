@@ -3,47 +3,148 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>极速专业扫码</title>
+    <title>AI 仓储极速扫码</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: #000; color: white; margin: 0; text-align: center; }
+        body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; font-family: sans-serif; }
         #reader { width: 100%; height: 100vh; }
-        #info { position: fixed; bottom: 20px; width: 100%; text-align: center; z-index: 10; }
+        
+        /* 顶部模式切换选项卡 */
+        .tabs { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(50,50,50,0.8); border-radius: 20px; z-index: 20; padding: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .tab-btn { background: transparent; color: #aaa; border: none; padding: 10px 20px; font-size: 15px; border-radius: 15px; font-weight: bold; transition: 0.3s; }
+        .tab-btn.active { background: #2196F3; color: white; }
+
+        /* 底部操作台 */
+        .control-panel { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(20, 20, 20, 0.95); padding: 25px 0 35px 0; z-index: 10; border-top-left-radius: 20px; border-top-right-radius: 20px; }
+        #info { font-size: 18px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
+        .highlight { color: #FFD700; font-size: 20px; }
+        
+        .btn-cancel { background: #444; color: white; border: 1px solid #666; padding: 12px 35px; font-size: 16px; border-radius: 30px; cursor: pointer; font-weight: bold; }
+        .btn-cancel:active { background: #666; }
     </style>
 </head>
 <body>
+    <div class="tabs">
+        <button id="tab-query" class="tab-btn active" onclick="switchMode('QUERY')">🔍 单次查询</button>
+        <button id="tab-move" class="tab-btn" onclick="switchMode('MOVE')">📍 连续移库</button>
+    </div>
+
     <div id="reader"></div>
-    <div id="info">正在启动高清扫描引擎...</div>
+    
+    <div class="control-panel">
+        <div id="info">请扫描 <span style="color:#00e676;">【产品条码】</span></div>
+        <button class="btn-cancel" onclick="tg.close()">❌ 取消并返回</button>
+    </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        tg.expand(); // 全屏展示
+        tg.expand();
 
-        const html5QrCode = new Html5Qrcode("reader");
-        const config = { 
-            fps: 20, 
-            qrbox: { width: 280, height: 200 }, // 矩形框更适合条形码
-            aspectRatio: 1.0 
+        // 核心状态管理
+        let currentMode = 'QUERY';   // 模式：'QUERY' 或 'MOVE'
+        let moveStep = 1;            // 移库模式下的步骤：1 或 2
+        let scannedProduct = "";     // 暂存第一步扫到的产品码
+
+        // --- 1. 生成提示音 (无需音频文件，纯代码发声) ---
+        function playBeep() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(880, ctx.currentTime); // 频率，清脆的滴声
+                gain.gain.setValueAtTime(0.5, ctx.currentTime);     // 音量
+                osc.start();
+                osc.stop(ctx.currentTime + 0.1); // 持续 100 毫秒
+            } catch(e) {}
+        }
+
+        // --- 2. 模式切换 UI 逻辑 ---
+        function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('tab-query').classList.remove('active');
+            document.getElementById('tab-move').classList.remove('active');
+            
+            if (mode === 'QUERY') {
+                document.getElementById('tab-query').classList.add('active');
+                document.getElementById('info').innerHTML = `请扫描 <span style="color:#00e676;">【产品条码】</span> 查档案`;
+            } else {
+                document.getElementById('tab-move').classList.add('active');
+                moveStep = 1;
+                scannedProduct = "";
+                document.getElementById('info').innerHTML = `第一步：扫描 <span style="color:#00e676;">【产品条码】</span>`;
+            }
+        }
+
+        // --- 3. 扫码成功回调 ---
+        const onScanSuccess = (decodedText) => {
+            decodedText = decodedText.trim().toUpperCase();
+
+            // 模式A：单次查询 (主流程)
+            if (currentMode === 'QUERY') {
+                playBeep();
+                document.getElementById("info").innerText = "识别成功，正在查询...";
+                html5QrCode.stop().then(() => {
+                    tg.sendData(decodedText); 
+                    tg.close(); 
+                }).catch(() => {
+                    tg.sendData(decodedText);
+                    tg.close();
+                });
+                return;
+            }
+
+            // 模式B：连续移库流程
+            if (currentMode === 'MOVE') {
+                if (moveStep === 1) {
+                    playBeep();
+                    scannedProduct = decodedText;
+                    moveStep = 2;
+                    document.getElementById("info").innerHTML = `已锁定产品: <span class="highlight">${scannedProduct}</span><br>第二步：请扫描 <span style="color:#2196F3;">【新库位码】</span>`;
+                    
+                    // 暂停扫描器缓冲 1 秒，防止立刻重扫
+                    html5QrCode.pause();
+                    setTimeout(() => { html5QrCode.resume(); }, 1000);
+                } 
+                else if (moveStep === 2) {
+                    // 🚨 核心防抖：如果扫到的码跟刚才产品码一模一样，直接忽略，不发声！
+                    if (decodedText === scannedProduct) {
+                        return; 
+                    }
+                    
+                    // 扫到了不同的码，判定为库位码
+                    playBeep();
+                    document.getElementById("info").innerText = "数据打包中，请稍候...";
+                    let payload = `MOVE_LOC|${scannedProduct}|${decodedText}`;
+                    
+                    html5QrCode.stop().then(() => {
+                        tg.sendData(payload);
+                        tg.close();
+                    }).catch(() => {
+                        tg.sendData(payload);
+                        tg.close();
+                    });
+                }
+            }
         };
 
-        // 启动摄像头
-        html5QrCode.start(
-            { facingMode: "environment" }, 
-            config,
-            (decodedText) => {
-                // 识别成功
-                document.getElementById("info").innerText = "识别成功: " + decodedText;
-                html5QrCode.stop().then(() => {
-                    tg.sendData(decodedText); // 发送数据回机器人
-                    tg.close(); // 自动关闭
-                });
-            },
-            (errorMessage) => { /* 忽略扫描过程中的噪音 */ }
-        ).catch((err) => {
-            document.getElementById("info").innerText = "摄像头启动失败，请检查权限";
-        });
+        // --- 4. 启动扫描引擎 ---
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 20, qrbox: { width: 280, height: 200 }, aspectRatio: 1.0 };
+        
+        async function startScanner() {
+            try {
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
+            } catch (err) {
+                document.getElementById("info").innerText = "摄像头启动失败，请检查系统权限";
+            }
+        }
+
+        startScanner();
     </script>
 </body>
 </html>
