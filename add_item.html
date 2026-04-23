@@ -3,40 +3,62 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>新产品录入</title>
+    <title>新货录入</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f4f4f9; margin: 0; padding: 20px; color: #333; }
+        body { font-family: sans-serif; background: #f4f4f9; margin: 0; padding: 15px; color: #333; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h2 { margin-top: 0; color: #2196F3; font-size: 1.2rem; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
-        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
-        input[readonly] { background: #eee; color: #666; }
+        h2 { margin-top: 0; color: #2196F3; font-size: 1.2rem; text-align: center; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
+        .form-group { margin-bottom: 12px; flex: 1; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.85rem; color: #666; }
+        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
+        input:focus { border-color: #2196F3; outline: none; }
+        .optional { font-weight: normal; color: #999; font-size: 0.75rem; }
         .btn-submit { width: 100%; background: #2196F3; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        .btn-submit:active { background: #1976D2; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>📝 新产品建档</h2>
-        <div class="form-group">
-            <label>产品条码 (自动提取)</label>
-            <input type="text" id="barcode" readonly>
+        <h2>📦 新货建档</h2>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>编号 (A列)</label>
+                <input type="text" id="id_code" placeholder="扫描或输入">
+            </div>
+            <div class="form-group">
+                <label>条码 (C列)</label>
+                <input type="text" id="barcode" placeholder="扫描或输入">
+            </div>
         </div>
+
         <div class="form-group">
-            <label>产品名称</label>
-            <input type="text" id="name" placeholder="请输入名称">
-        </div>
-        <div class="form-group">
-            <label>单价 (€)</label>
-            <input type="number" id="price" step="0.01" placeholder="0.00">
-        </div>
-        <div class="form-group">
-            <label>初始库位</label>
+            <label>位置 (B列)</label>
             <input type="text" id="loc" placeholder="例如 A01-05">
         </div>
-        <button class="btn-submit" onclick="submitForm()">确认录入</button>
+
+        <div class="form-group">
+            <label>名称 (D列) <span class="optional">(可选)</span></label>
+            <input type="text" id="name" placeholder="请输入名称">
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>包装数 (E) <span class="optional">(选填)</span></label>
+                <input type="number" id="pack_inner" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label>装箱数 (F) <span class="optional">(选填)</span></label>
+                <input type="number" id="pack_outer" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label>数量 (H) <span class="optional">(选填)</span></label>
+                <input type="number" id="qty" placeholder="0">
+            </div>
+        </div>
+
+        <button class="btn-submit" onclick="submitForm()">确认录入新货</button>
     </div>
 
     <script>
@@ -44,24 +66,35 @@
         tg.ready();
         tg.expand();
 
-        // 自动从 URL 获取条码参数 (?code=12345)
+        // 自动从 URL 获取条码参数并填充到编号和条码
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code') || "";
-        document.getElementById('barcode').value = code;
+        document.getElementById('id_code').value = code.toUpperCase();
+        document.getElementById('barcode').value = code.toUpperCase();
 
         function submitForm() {
+            // 强制大写字段
+            const id_code = document.getElementById('id_code').value.trim().toUpperCase();
+            const barcode = document.getElementById('barcode').value.trim().toUpperCase();
+            const loc = document.getElementById('loc').value.trim().toUpperCase();
+            
+            // 可选字段
             const name = document.getElementById('name').value.trim();
-            const price = document.getElementById('price').value.trim();
-            const loc = document.getElementById('loc').value.trim();
+            const pack_inner = document.getElementById('pack_inner').value || "";
+            const pack_outer = document.getElementById('pack_outer').value || "";
+            const qty = document.getElementById('qty').value || "";
 
-            if (!name || !price) {
-                alert("请填写完整的名称和价格");
+            if (!id_code || !barcode || !loc) {
+                alert("请填写编号、条码和位置");
                 return;
             }
 
-            // 打包数据，使用特定前缀 ADD_ITEM
-            const payload = `ADD_ITEM|${code}|${name}|${price}|${loc}`;
-            tg.sendData(payload); // 发送给机器人后端
+            // 打包数据：ADD_ITEM|编号|条码|位置|名称|包装数|装箱数|数量
+            // 使用管道符分隔，并过滤掉名称中的管道符防止解析错误
+            const safeName = name.replace(/\|/g, " ");
+            const payload = `ADD_ITEM|${id_code}|${barcode}|${loc}|${safeName}|${pack_inner}|${pack_outer}|${qty}`;
+            
+            tg.sendData(payload);
             tg.close();
         }
     </script>
