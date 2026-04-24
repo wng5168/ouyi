@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>新货录入</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         body { font-family: sans-serif; background: #f4f4f9; margin: 0; padding: 15px; color: #333; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -12,10 +13,21 @@
         .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
         .form-group { margin-bottom: 12px; flex: 1; }
         label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.85rem; color: #666; }
+        
+        /* 扫码增强样式 */
+        .input-with-scan { display: flex; gap: 5px; }
+        .input-with-scan input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+        .scan-btn { background: #4CAF50; color: white; border: none; border-radius: 8px; padding: 0 12px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        
         input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
         input:focus { border-color: #2196F3; outline: none; }
         .optional { font-weight: normal; color: #999; font-size: 0.75rem; }
         .btn-submit { width: 100%; background: #2196F3; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+
+        /* 扫码器全屏遮罩 */
+        #scanner-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 1000; flex-direction: column; }
+        #reader { width: 100%; flex: 1; }
+        .close-scan-btn { background: #f44336; color: white; border: none; padding: 15px; font-size: 1.1rem; font-weight: bold; text-align: center; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -25,22 +37,31 @@
         <div class="form-row">
             <div class="form-group">
                 <label>编号 (A列)</label>
-                <input type="text" id="id_code" placeholder="扫描或输入">
+                <div class="input-with-scan">
+                    <input type="text" id="id_code" placeholder="扫描或输入">
+                    <button class="scan-btn" onclick="openScanner('id_code')">📷</button>
+                </div>
             </div>
             <div class="form-group">
                 <label>条码 (C列)</label>
-                <input type="text" id="barcode" placeholder="扫描或输入">
+                <div class="input-with-scan">
+                    <input type="text" id="barcode" placeholder="扫描或输入">
+                    <button class="scan-btn" onclick="openScanner('barcode')">📷</button>
+                </div>
             </div>
         </div>
 
         <div class="form-group">
             <label>位置 (B列)</label>
-            <input type="text" id="loc" placeholder="例如 A01-05">
+            <div class="input-with-scan">
+                <input type="text" id="loc" placeholder="例如 A01-05">
+                <button class="scan-btn" onclick="openScanner('loc')">📷</button>
+            </div>
         </div>
 
         <div class="form-group">
             <label>品名 (D列) <span class="optional">(可选)</span></label>
-            <input type="text" id="name" placeholder="请输入名称">
+            <input type="text" id="name" placeholder="请输入品名">
         </div>
 
         <div class="form-row">
@@ -61,17 +82,66 @@
         <button class="btn-submit" onclick="submitForm()">确认录入新货</button>
     </div>
 
+    <div id="scanner-modal">
+        <div id="reader"></div>
+        <button class="close-scan-btn" onclick="closeScanner()">❌ 取消扫码</button>
+    </div>
+
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
 
-        // 自动从 URL 获取条码参数并填充到编号和条码
+        // 🌟 完美保留：自动从 URL 获取条码参数并填充到编号和条码
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code') || "";
         document.getElementById('id_code').value = code.toUpperCase();
         document.getElementById('barcode').value = code.toUpperCase();
 
+        // --- 扫码核心逻辑 ---
+        let html5QrCode = null;
+        let currentInputId = "";
+
+        function openScanner(targetInputId) {
+            currentInputId = targetInputId;
+            document.getElementById('scanner-modal').style.display = 'flex';
+
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+
+            const config = { fps: 15, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 };
+            
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                config, 
+                (decodedText) => {
+                    // 扫码成功填入
+                    document.getElementById(currentInputId).value = decodedText.toUpperCase();
+                    
+                    // 联动小优化：如果扫的是编号且条码为空，顺手把条码也填了
+                    if (currentInputId === 'id_code' && !document.getElementById('barcode').value) {
+                        document.getElementById('barcode').value = decodedText.toUpperCase();
+                    }
+                    
+                    closeScanner();
+                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
+                }, 
+                (errorMessage) => {} // 忽略扫码过程中的警告
+            ).catch(err => {
+                alert("启动摄像头失败，请检查手机权限。");
+                closeScanner();
+            });
+        }
+
+        function closeScanner() {
+            document.getElementById('scanner-modal').style.display = 'none';
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => console.log(err));
+            }
+        }
+
+        // --- 完美保留：原封不动的提交逻辑 ---
         function submitForm() {
             // 强制大写字段
             const id_code = document.getElementById('id_code').value.trim().toUpperCase();
