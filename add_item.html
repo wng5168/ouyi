@@ -10,17 +10,20 @@
         body { font-family: sans-serif; background: #f4f4f9; margin: 0; padding: 15px; color: #333; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         h2 { margin-top: 0; color: #2196F3; font-size: 1.2rem; text-align: center; }
+        
+        /* 布局控制 */
         .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
         .form-group { margin-bottom: 12px; flex: 1; }
         label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.85rem; color: #666; }
         
-        /* 扫码增强样式 */
+        /* 扫码输入框组合 */
         .input-with-scan { display: flex; gap: 5px; }
         .input-with-scan input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
         .scan-btn { background: #4CAF50; color: white; border: none; border-radius: 8px; padding: 0 12px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         
         input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
         input:focus { border-color: #2196F3; outline: none; }
+        
         .optional { font-weight: normal; color: #999; font-size: 0.75rem; }
         .btn-submit { width: 100%; background: #2196F3; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
 
@@ -34,20 +37,19 @@
     <div class="card">
         <h2>📦 新货建档</h2>
         
-        <div class="form-row">
-            <div class="form-group">
-                <label>编号 (A列)</label>
-                <div class="input-with-scan">
-                    <input type="text" id="id_code" placeholder="扫描或输入">
-                    <button class="scan-btn" onclick="openScanner('id_code')">📷</button>
-                </div>
+        <div class="form-group">
+            <label>编号 (A列)</label>
+            <div class="input-with-scan">
+                <input type="text" id="id_code" placeholder="扫描或输入编号">
+                <button class="scan-btn" onclick="openScanner('id_code')">📷</button>
             </div>
-            <div class="form-group">
-                <label>条码 (C列)</label>
-                <div class="input-with-scan">
-                    <input type="text" id="barcode" placeholder="扫描或输入">
-                    <button class="scan-btn" onclick="openScanner('barcode')">📷</button>
-                </div>
+        </div>
+
+        <div class="form-group">
+            <label>条码 (C列)</label>
+            <div class="input-with-scan">
+                <input type="text" id="barcode" placeholder="扫描或输入条码">
+                <button class="scan-btn" onclick="openScanner('barcode')">📷</button>
             </div>
         </div>
 
@@ -66,15 +68,15 @@
 
         <div class="form-row">
             <div class="form-group">
-                <label>包装数 (E) <span class="optional">(选填)</span></label>
+                <label>内包 (E) <span class="optional">(选)</span></label>
                 <input type="number" id="pack_inner" placeholder="0">
             </div>
             <div class="form-group">
-                <label>装箱数 (F) <span class="optional">(选填)</span></label>
+                <label>装箱 (F) <span class="optional">(选)</span></label>
                 <input type="number" id="pack_outer" placeholder="0">
             </div>
             <div class="form-group">
-                <label>数量 (H) <span class="optional">(选填)</span></label>
+                <label>数量 (H) <span class="optional">(选)</span></label>
                 <input type="number" id="qty" placeholder="0">
             </div>
         </div>
@@ -92,13 +94,12 @@
         tg.ready();
         tg.expand();
 
-        // 🌟 完美保留：自动从 URL 获取条码参数并填充到编号和条码
+        // 🌟 保留原逻辑：自动填充 URL 传过来的 code [cite: 2026-02-03]
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code') || "";
         document.getElementById('id_code').value = code.toUpperCase();
         document.getElementById('barcode').value = code.toUpperCase();
 
-        // --- 扫码核心逻辑 ---
         let html5QrCode = null;
         let currentInputId = "";
 
@@ -116,20 +117,20 @@
                 { facingMode: "environment" }, 
                 config, 
                 (decodedText) => {
-                    // 扫码成功填入
-                    document.getElementById(currentInputId).value = decodedText.toUpperCase();
+                    const result = decodedText.toUpperCase();
+                    document.getElementById(currentInputId).value = result;
                     
-                    // 联动小优化：如果扫的是编号且条码为空，顺手把条码也填了
+                    // 🌟 保留原逻辑：扫编号联动条码 [cite: 2026-02-03]
                     if (currentInputId === 'id_code' && !document.getElementById('barcode').value) {
-                        document.getElementById('barcode').value = decodedText.toUpperCase();
+                        document.getElementById('barcode').value = result;
                     }
                     
                     closeScanner();
                     try { tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
                 }, 
-                (errorMessage) => {} // 忽略扫码过程中的警告
+                (errorMessage) => {} 
             ).catch(err => {
-                alert("启动摄像头失败，请检查手机权限。");
+                alert("摄像头启动失败。");
                 closeScanner();
             });
         }
@@ -141,26 +142,23 @@
             }
         }
 
-        // --- 完美保留：原封不动的提交逻辑 ---
         function submitForm() {
-            // 强制大写字段
+            // 🌟 保留原逻辑：清洗与大写处理 [cite: 2026-02-03]
             const id_code = document.getElementById('id_code').value.trim().toUpperCase();
             const barcode = document.getElementById('barcode').value.trim().toUpperCase();
             const loc = document.getElementById('loc').value.trim().toUpperCase();
             
-            // 可选字段
             const name = document.getElementById('name').value.trim();
             const pack_inner = document.getElementById('pack_inner').value || "";
             const pack_outer = document.getElementById('pack_outer').value || "";
             const qty = document.getElementById('qty').value || "";
 
             if (!id_code || !barcode || !loc) {
-                alert("请填写编号、条码和位置");
+                alert("请填写必填项：编号、条码、位置");
                 return;
             }
 
-            // 打包数据：ADD_ITEM|编号|条码|位置|名称|包装数|装箱数|数量
-            // 使用管道符分隔，并过滤掉名称中的管道符防止解析错误
+            // 🌟 保留原逻辑：安全字符替换与 Payload 拼接 [cite: 2026-02-03]
             const safeName = name.replace(/\|/g, " ");
             const payload = `ADD_ITEM|${id_code}|${barcode}|${loc}|${safeName}|${pack_inner}|${pack_outer}|${qty}`;
             
