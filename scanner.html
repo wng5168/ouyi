@@ -38,6 +38,19 @@
     </div>
 
     <script>
+    window.addEventListener("DOMContentLoaded", function() {
+        navigator.permissions.query({ name: "camera" }).then(function(result) {
+            if (result.state === "granted") {
+                // 已经有权限了，扫码时直接拉起，不再弹窗
+                console.log("摄像头权限已就绪");
+            } else {
+                // 引导用户点击一次始终允许
+                console.log("等待获取摄像头权限");
+            }
+        });
+    });
+    </script>
+    <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
