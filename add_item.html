@@ -153,8 +153,8 @@
             const pack_outer = document.getElementById('pack_outer').value || "";
             const qty = document.getElementById('qty').value || "";
 
-            if (!id_code || !barcode || !loc) {
-                alert("请填写必填项：编号、条码、位置");
+            if (!barcode || !loc) {
+                alert("请填写必填项：条码、位置");
                 return;
             }
 
