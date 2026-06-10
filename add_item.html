@@ -94,7 +94,7 @@
         tg.ready();
         tg.expand();
 
-        // 🌟 保留原逻辑：自动填充 URL 传过来的 code [cite: 2026-02-03]
+        // 自动填充 URL 传过来的 code
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code') || "";
         document.getElementById('id_code').value = code.toUpperCase();
@@ -120,7 +120,7 @@
                     const result = decodedText.toUpperCase();
                     document.getElementById(currentInputId).value = result;
                     
-                    // 🌟 保留原逻辑：扫编号联动条码 [cite: 2026-02-03]
+                    // 扫编号联动条码
                     if (currentInputId === 'id_code' && !document.getElementById('barcode').value) {
                         document.getElementById('barcode').value = result;
                     }
@@ -130,7 +130,7 @@
                 }, 
                 (errorMessage) => {} 
             ).catch(err => {
-                alert("摄像头启动失败。");
+                alert("摄像头启动失败，请检查权限。");
                 closeScanner();
             });
         }
@@ -143,24 +143,34 @@
         }
 
         function submitForm() {
-            // 🌟 保留原逻辑：清洗与大写处理 [cite: 2026-02-03]
-            const id_code = document.getElementById('id_code').value.trim().toUpperCase();
-            const barcode = document.getElementById('barcode').value.trim().toUpperCase();
-            const loc = document.getElementById('loc').value.trim().toUpperCase();
+            // 1. 获取并处理基础字符（去首尾空格 + 转大写 + 彻底剔除管道符防报错）
+            const id_code = document.getElementById('id_code').value.trim().toUpperCase().replace(/\|/g, "");
+            const barcode = document.getElementById('barcode').value.trim().toUpperCase().replace(/\|/g, "");
+            const loc = document.getElementById('loc').value.trim().toUpperCase().replace(/\|/g, "");
             
-            const name = document.getElementById('name').value.trim();
-            const pack_inner = document.getElementById('pack_inner').value || "";
-            const pack_outer = document.getElementById('pack_outer').value || "";
-            const qty = document.getElementById('qty').value || "";
+            // 2. 获取品名及数字信息（保留原有大小写，仅将品名中的管道符替换为空格）
+            const name = document.getElementById('name').value.trim().replace(/\|/g, " ");
+            const pack_inner = document.getElementById('pack_inner').value.trim();
+            const pack_outer = document.getElementById('pack_outer').value.trim();
+            const qty = document.getElementById('qty').value.trim();
 
+            // 3. 核心校验：解除对 id_code 的限制，仅校验 barcode 和 loc
             if (!barcode || !loc) {
-                alert("请填写必填项：条码、位置");
+                alert("请至少填写必填项：条码、位置");
                 return;
             }
 
-            // 🌟 保留原逻辑：安全字符替换与 Payload 拼接 [cite: 2026-02-03]
-            const safeName = name.replace(/\|/g, " ");
-            const payload = `ADD_ITEM|${id_code}|${barcode}|${loc}|${safeName}|${pack_inner}|${pack_outer}|${qty}`;
+            // 4. 使用数组组装 Payload，结构最为严谨安全
+            const payload = [
+                "ADD_ITEM", 
+                id_code, 
+                barcode, 
+                loc, 
+                name, 
+                pack_inner, 
+                pack_outer, 
+                qty
+            ].join("|");
             
             tg.sendData(payload);
             tg.close();
