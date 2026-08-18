@@ -44,7 +44,7 @@
     <div id="input-status" class="input-status">🔫 蓝牙扫码枪已就绪（HID），摄像头也可同时扫描</div>
 
     <div id="reader"></div>
-    <input id="hid-capture" type="text" inputmode="none" autocomplete="off" aria-label="蓝牙扫码枪输入" />
+    <input id="hid-capture" type="text" inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false" lang="en" aria-label="蓝牙扫码枪输入" />
 
     <div class="control-panel">
         <div id="info">请扫描 <span style="color:#00e676;">【产品条码】</span></div>
@@ -93,10 +93,11 @@
         let html5QrCode = null;
         let outboundBatch = [];
 
-        // HID 扫码枪会像键盘一样快速输入字符，通常以 Enter/Tab 结尾。
-        // 同时保留短超时提交，兼容未配置回车后缀的扫码枪。
-        const HID_IDLE_COMMIT_MS = 120;
+        // HID 扫码枪会像键盘一样输入字符，通常以 Enter/Tab 结尾。
+        // 蓝牙与 Android WebView 可能产生较大字符间隔，空闲提交不能过短。
+        const HID_IDLE_COMMIT_MS = 450;
         const HID_MIN_CODE_LENGTH = 2;
+        const HID_MAX_CAPTURE_LENGTH = 96;
         const DUPLICATE_GUARD_MS = 800;
         let hidBuffer = "";
         let hidCommitTimer = null;
@@ -134,8 +135,43 @@
             }
         }
 
+        function normalizeFullWidthAscii(rawText) {
+            return String(rawText || "").replace(
+                /[！-～]/g,
+                (character) => String.fromCharCode(character.charCodeAt(0) - 0xFEE0),
+            ).replace(/　/g, " ");
+        }
+
         function normalizeScanCode(rawText) {
-            return String(rawText || "").trim().toUpperCase();
+            return normalizeFullWidthAscii(rawText)
+                .replace(/[\u0000-\u001F\u007F]/g, "")
+                .trim()
+                .toUpperCase()
+                .replace(/^(?:\]C1|\]E0|\]E4|\]Q[0-9])/, "");
+        }
+
+        function extractOutboundBarcode(rawText) {
+            const normalized = normalizeScanCode(rawText);
+            if (/^[0-9]{6,18}$/.test(normalized)) return normalized;
+
+            // 部分 Android WebView 会把一次 HID 输入完整重复一次。
+            if (/^[0-9]+$/.test(normalized) && normalized.length % 2 === 0) {
+                const middle = normalized.length / 2;
+                const firstHalf = normalized.slice(0, middle);
+                if (
+                    firstHalf === normalized.slice(middle)
+                    && /^[0-9]{6,18}$/.test(firstHalf)
+                ) {
+                    return firstHalf;
+                }
+            }
+
+            // 支持扫码枪附加厂商前后缀，但歧义时拒绝猜测。
+            const candidates = [...normalized.matchAll(
+                /(?:^|[^0-9])([0-9]{6,18})(?=$|[^0-9])/g,
+            )].map((match) => match[1]);
+            const uniqueCandidates = [...new Set(candidates)];
+            return uniqueCandidates.length === 1 ? uniqueCandidates[0] : "";
         }
 
         function updateInputStatus(source, cameraError = false) {
@@ -154,6 +190,16 @@
             if (!isHidInput) return;
             const capture = document.getElementById("hid-capture");
             capture.focus({ preventScroll: true });
+        }
+
+        function renderHidRecognitionError(rawText) {
+            const normalized = normalizeScanCode(rawText);
+            const preview = normalized.slice(0, 32) || "空";
+            document.getElementById("input-status").innerText =
+                "⚠️ 已读取数据，但不是有效商品条码";
+            document.getElementById("info").innerText =
+                `读取 ${normalized.length} 字符：[${preview}]，请重新扫描`;
+            focusHidCapture();
         }
 
         function renderOutboundBatch(lastCode = "") {
@@ -207,17 +253,19 @@
 
         // --- 3. 摄像头与蓝牙扫码枪共用的扫码成功回调 ---
         function submitScan(rawText, source = "CAMERA") {
-            const decodedText = normalizeScanCode(rawText);
+            const decodedText = (
+                isOutboundFlow && source === "HID"
+                    ? extractOutboundBarcode(rawText)
+                    : normalizeScanCode(rawText)
+            );
+            if (!decodedText && isOutboundFlow && source === "HID") {
+                renderHidRecognitionError(rawText);
+                return;
+            }
             if (!decodedText || Date.now() < acceptScanAfter) return;
 
             const now = Date.now();
             if (isOutboundFlow && source === "HID") {
-                if (!/^[0-9]{6,18}$/.test(decodedText)) {
-                    document.getElementById("info").innerText =
-                        "未识别为商品条码，请重新扫描";
-                    focusHidCapture();
-                    return;
-                }
                 if (outboundBatch.length >= MAX_OUTBOUND_BATCH_SCANS) {
                     document.getElementById("info").innerText =
                         "本批已达 200 次，请先提交";
@@ -274,23 +322,49 @@
         }
 
         const onScanSuccess = (decodedText) => submitScan(decodedText, "CAMERA");
+        const hidCapture = document.getElementById("hid-capture");
+
+        function scheduleHidCommit() {
+            if (hidCommitTimer) clearTimeout(hidCommitTimer);
+            hidCommitTimer = setTimeout(commitHidBuffer, HID_IDLE_COMMIT_MS);
+        }
 
         function commitHidBuffer() {
             if (hidCommitTimer) {
                 clearTimeout(hidCommitTimer);
                 hidCommitTimer = null;
             }
-            const code = hidBuffer;
+            const code = isHidInput ? (hidCapture.value || hidBuffer) : hidBuffer;
             hidBuffer = "";
+            if (isHidInput) hidCapture.value = "";
             if (code.length >= HID_MIN_CODE_LENGTH) {
                 submitScan(code, "HID");
             }
         }
 
+        function keyEventCharacter(event) {
+            if (event.key && event.key.length === 1) return event.key;
+            const code = String(event.code || "");
+            if (/^Digit[0-9]$/.test(code)) return code.slice(-1);
+            if (/^Numpad[0-9]$/.test(code)) return code.slice(-1);
+            if (/^Key[A-Z]$/.test(code)) return code.slice(-1);
+            return code === "Minus" || code === "NumpadSubtract" ? "-" : "";
+        }
+
         document.addEventListener("keydown", (event) => {
             if (event.ctrlKey || event.altKey || event.metaKey) return;
 
-            if (event.key === "Enter" || event.key === "Tab") {
+            const isTerminator = (
+                event.key === "Enter"
+                || event.key === "Tab"
+                || event.code === "Enter"
+                || event.code === "NumpadEnter"
+                || event.code === "Tab"
+            );
+            if (isTerminator) {
+                if (isHidInput && hidCapture.value) {
+                    hidBuffer = hidCapture.value;
+                }
                 if (hidBuffer) {
                     event.preventDefault();
                     commitHidBuffer();
@@ -299,25 +373,39 @@
             }
             if (event.key === "Escape") {
                 hidBuffer = "";
+                if (isHidInput) hidCapture.value = "";
                 if (hidCommitTimer) clearTimeout(hidCommitTimer);
                 hidCommitTimer = null;
                 return;
             }
-            if (event.key.length !== 1 || event.key.charCodeAt(0) > 127) return;
+            const character = keyEventCharacter(event);
+            if (!character || character.charCodeAt(0) > 127) return;
 
-            if (isHidInput) event.preventDefault();
-            hidBuffer += event.key;
-            if (hidCommitTimer) clearTimeout(hidCommitTimer);
-            hidCommitTimer = setTimeout(commitHidBuffer, HID_IDLE_COMMIT_MS);
+            if (isHidInput) {
+                // 以 input 事件为主；仅在 WebView 未产生 input 时补录 keydown，避免双写。
+                const valueBeforeDefault = hidCapture.value;
+                setTimeout(() => {
+                    if (hidCapture.value !== valueBeforeDefault) return;
+                    hidCapture.value += character;
+                    hidBuffer = hidCapture.value;
+                    scheduleHidCommit();
+                }, 0);
+                return;
+            }
+            hidBuffer += character;
+            scheduleHidCommit();
         });
 
-        document.getElementById("hid-capture").addEventListener("input", (event) => {
-            const fallbackText = String(event.target.value || "");
-            event.target.value = "";
-            if (!fallbackText) return;
-            hidBuffer += fallbackText;
-            if (hidCommitTimer) clearTimeout(hidCommitTimer);
-            hidCommitTimer = setTimeout(commitHidBuffer, HID_IDLE_COMMIT_MS);
+        hidCapture.addEventListener("input", (event) => {
+            const capturedText = String(event.target.value || "");
+            if (capturedText.length > HID_MAX_CAPTURE_LENGTH) {
+                event.target.value = "";
+                hidBuffer = "";
+                renderHidRecognitionError(capturedText);
+                return;
+            }
+            hidBuffer = capturedText;
+            if (hidBuffer) scheduleHidCommit();
         });
 
         // --- 4. 启动扫描引擎 ---
