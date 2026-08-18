@@ -9,7 +9,7 @@
     <style>
         body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; font-family: sans-serif; }
         #reader { width: 100%; height: 100vh; }
-        
+
         /* 顶部模式切换选项卡 */
         .tabs { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(50,50,50,0.8); border-radius: 20px; z-index: 20; padding: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         .tab-btn { background: transparent; color: #aaa; border: none; padding: 10px 20px; font-size: 15px; border-radius: 15px; font-weight: bold; transition: 0.3s; }
@@ -23,9 +23,16 @@
         .control-panel { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(20, 20, 20, 0.95); padding: 25px 0 35px 0; z-index: 10; border-top-left-radius: 20px; border-top-right-radius: 20px; }
         #info { font-size: 18px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
         .highlight { color: #FFD700; font-size: 20px; }
-        
+
         .btn-cancel { background: #444; color: white; border: 1px solid #666; padding: 12px 35px; font-size: 16px; border-radius: 30px; cursor: pointer; font-weight: bold; }
         .btn-cancel:active { background: #666; }
+        .btn-submit { background: #00a65a; color: white; border: 0; padding: 12px 30px; font-size: 16px; border-radius: 30px; cursor: pointer; font-weight: bold; margin-left: 8px; }
+        .btn-undo { background: #795548; color: white; border: 0; padding: 10px 22px; font-size: 15px; border-radius: 24px; cursor: pointer; margin-right: 8px; }
+        #batch-actions { display: none; margin: 15px 0 18px; }
+        #hid-capture { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
+        body.hid-mode #reader { display: none; }
+        body.hid-mode .control-panel { top: 145px; bottom: auto; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        body.outbound-mode .tabs { display: none; }
     </style>
 </head>
 <body>
@@ -37,14 +44,21 @@
     <div id="input-status" class="input-status">🔫 蓝牙扫码枪已就绪（HID），摄像头也可同时扫描</div>
 
     <div id="reader"></div>
-    
+    <input id="hid-capture" type="text" inputmode="none" autocomplete="off" aria-label="蓝牙扫码枪输入" />
+
     <div class="control-panel">
         <div id="info">请扫描 <span style="color:#00e676;">【产品条码】</span></div>
+        <div id="batch-actions">
+            <button class="btn-undo" onclick="undoBatchScan()">↩️ 撤销上一条</button>
+            <button class="btn-submit" onclick="submitOutboundBatch()">✅ 提交本批</button>
+        </div>
         <button class="btn-cancel" onclick="tg.close()">❌ 取消并返回</button>
     </div>
 
     <script>
     window.addEventListener("DOMContentLoaded", function() {
+        const inputMode = new URLSearchParams(window.location.search).get("input");
+        if (inputMode === "hid") return;
         navigator.permissions.query({ name: "camera" }).then(function(result) {
             if (result.state === "granted") {
                 // 已经有权限了，扫码时直接拉起，不再弹窗
@@ -61,6 +75,13 @@
         tg.ready();
         tg.expand();
 
+        const queryParams = new URLSearchParams(window.location.search);
+        const isHidInput = queryParams.get("input") === "hid";
+        const isOutboundFlow = (
+            isHidInput && queryParams.get("flow") === "outbound"
+        );
+        const MAX_OUTBOUND_BATCH_SCANS = 200;
+
         // 核心状态管理
         let currentMode = 'QUERY';   // 模式：'QUERY' 或 'MOVE'
         let moveStep = 1;            // 移库模式下的步骤：1 或 2
@@ -69,6 +90,8 @@
         let acceptScanAfter = 0;
         let lastAcceptedCode = "";
         let lastAcceptedAt = 0;
+        let html5QrCode = null;
+        let outboundBatch = [];
 
         // HID 扫码枪会像键盘一样快速输入字符，通常以 Enter/Tab 结尾。
         // 同时保留短超时提交，兼容未配置回车后缀的扫码枪。
@@ -99,7 +122,7 @@
             currentMode = mode;
             document.getElementById('tab-query').classList.remove('active');
             document.getElementById('tab-move').classList.remove('active');
-            
+
             if (mode === 'QUERY') {
                 document.getElementById('tab-query').classList.add('active');
                 document.getElementById('info').innerHTML = `请扫描 <span style="color:#00e676;">【产品条码】</span> 查档案`;
@@ -125,6 +148,36 @@
             } else {
                 status.innerText = "📷 已接收摄像头扫码数据";
             }
+        }
+
+        function focusHidCapture() {
+            if (!isHidInput) return;
+            const capture = document.getElementById("hid-capture");
+            capture.focus({ preventScroll: true });
+        }
+
+        function renderOutboundBatch(lastCode = "") {
+            const distinctCount = new Set(outboundBatch).size;
+            const lastLine = lastCode ? `<br>最后：${lastCode}` : "";
+            document.getElementById("info").innerHTML = (
+                `已扫 <span class="highlight">${outboundBatch.length}</span> 次 / `
+                + `${distinctCount} 款${lastLine}`
+            );
+        }
+
+        function undoBatchScan() {
+            if (outboundBatch.length) outboundBatch.pop();
+            renderOutboundBatch(outboundBatch[outboundBatch.length - 1] || "");
+            focusHidCapture();
+        }
+
+        function submitOutboundBatch() {
+            if (!outboundBatch.length) {
+                document.getElementById("info").innerText = "请先扫描商品条码";
+                focusHidCapture();
+                return;
+            }
+            sendTelegramPayload(`OUTBOUND_BATCH|${outboundBatch.join(",")}`);
         }
 
         function sendTelegramPayload(payload) {
@@ -158,6 +211,25 @@
             if (!decodedText || Date.now() < acceptScanAfter) return;
 
             const now = Date.now();
+            if (isOutboundFlow && source === "HID") {
+                if (!/^[0-9]{6,18}$/.test(decodedText)) {
+                    document.getElementById("info").innerText =
+                        "未识别为商品条码，请重新扫描";
+                    focusHidCapture();
+                    return;
+                }
+                if (outboundBatch.length >= MAX_OUTBOUND_BATCH_SCANS) {
+                    document.getElementById("info").innerText =
+                        "本批已达 200 次，请先提交";
+                    return;
+                }
+                outboundBatch.push(decodedText);
+                playBeep();
+                updateInputStatus(source);
+                renderOutboundBatch(decodedText);
+                focusHidCapture();
+                return;
+            }
             if (
                 decodedText === lastAcceptedCode
                 && now - lastAcceptedAt < DUPLICATE_GUARD_MS
@@ -185,13 +257,13 @@
                     acceptScanAfter = now + 800;
                     document.getElementById("info").innerHTML = `已锁定产品: <span class="highlight">${scannedProduct}</span><br>第二步：请扫描 <span style="color:#2196F3;">【新库位码】</span>`;
                     pauseCameraBriefly();
-                } 
+                }
                 else if (moveStep === 2) {
                     // 🚨 核心防抖：如果扫到的码跟刚才产品码一模一样，直接忽略，不发声！
                     if (decodedText === scannedProduct) {
-                        return; 
+                        return;
                     }
-                    
+
                     // 扫到了不同的码，判定为库位码
                     playBeep();
                     document.getElementById("info").innerText = "数据打包中，请稍候...";
@@ -233,17 +305,27 @@
             }
             if (event.key.length !== 1 || event.key.charCodeAt(0) > 127) return;
 
+            if (isHidInput) event.preventDefault();
             hidBuffer += event.key;
             if (hidCommitTimer) clearTimeout(hidCommitTimer);
             hidCommitTimer = setTimeout(commitHidBuffer, HID_IDLE_COMMIT_MS);
         });
 
+        document.getElementById("hid-capture").addEventListener("input", (event) => {
+            const fallbackText = String(event.target.value || "");
+            event.target.value = "";
+            if (!fallbackText) return;
+            hidBuffer += fallbackText;
+            if (hidCommitTimer) clearTimeout(hidCommitTimer);
+            hidCommitTimer = setTimeout(commitHidBuffer, HID_IDLE_COMMIT_MS);
+        });
+
         // --- 4. 启动扫描引擎 ---
-        const html5QrCode = new Html5Qrcode("reader");
         const config = { fps: 20, qrbox: { width: 280, height: 200 }, aspectRatio: 1.0 };
-        
+
         async function startScanner() {
             try {
+                html5QrCode = new Html5Qrcode("reader");
                 await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
                 cameraRunning = true;
             } catch (err) {
@@ -252,7 +334,27 @@
             }
         }
 
-        startScanner();
+        if (isHidInput) {
+            document.body.classList.add("hid-mode");
+            document.getElementById("input-status").innerText =
+                "🔫 蓝牙扫码枪已就绪（无需摄像头）";
+            document.getElementById("info").innerHTML =
+                "请直接扫描 <span style=\"color:#00e676;\">【条码或库位码】</span>";
+            if (isOutboundFlow) {
+                document.body.classList.add("outbound-mode");
+                document.getElementById("batch-actions").style.display = "block";
+                document.getElementById("info").innerHTML =
+                    "请连续扫描 <span style=\"color:#00e676;\">【产品条码】</span>";
+            }
+            document.addEventListener("pointerdown", focusHidCapture);
+            window.addEventListener("focus", focusHidCapture);
+            document.addEventListener("visibilitychange", () => {
+                if (!document.hidden) focusHidCapture();
+            });
+            setTimeout(focusHidCapture, 50);
+        } else {
+            startScanner();
+        }
     </script>
 </body>
 </html>
