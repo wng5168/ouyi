@@ -1,163 +1,925 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>AI 仓储极速扫码</title>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI 仓储扫码终端</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: #000; color: white; margin: 0; text-align: center; overflow: hidden; font-family: sans-serif; }
-        #reader { width: 100%; height: 100vh; }
-        
-        /* 顶部模式切换选项卡 */
-        .tabs { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(50,50,50,0.8); border-radius: 20px; z-index: 20; padding: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .tab-btn { background: transparent; color: #aaa; border: none; padding: 10px 20px; font-size: 15px; border-radius: 15px; font-weight: bold; transition: 0.3s; }
-        .tab-btn.active { background: #2196F3; color: white; }
+        :root {
+            color-scheme: light dark;
+            --bg: var(--tg-theme-bg-color, #f3f7fa);
+            --card: var(--tg-theme-secondary-bg-color, #ffffff);
+            --text: var(--tg-theme-text-color, #173047);
+            --hint: var(--tg-theme-hint-color, #718190);
+            --accent: var(--tg-theme-button-color, #1687d9);
+            --accent-text: var(--tg-theme-button-text-color, #ffffff);
+            --ok: #16884a;
+            --warning: #bc6b00;
+            --danger: #b83232;
+            --border: rgba(90, 110, 125, 0.18);
+        }
 
-        /* 底部操作台 */
-        .control-panel { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(20, 20, 20, 0.95); padding: 25px 0 35px 0; z-index: 10; border-top-left-radius: 20px; border-top-right-radius: 20px; }
-        #info { font-size: 18px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
-        .highlight { color: #FFD700; font-size: 20px; }
-        
-        .btn-cancel { background: #444; color: white; border: 1px solid #666; padding: 12px 35px; font-size: 16px; border-radius: 30px; cursor: pointer; font-weight: bold; }
-        .btn-cancel:active { background: #666; }
+        * { box-sizing: border-box; }
+        html, body { min-height: 100%; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        button { font: inherit; }
+        .app {
+            width: min(760px, 100%);
+            min-height: 100vh;
+            margin: 0 auto;
+            padding: 16px 14px 28px;
+        }
+        h1 { margin: 3px 0 14px; font-size: 26px; }
+        .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .tab-btn, .action-btn {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 10px;
+            background: var(--card);
+            color: var(--text);
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .tab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 3px 14px rgba(20, 45, 65, 0.06);
+        }
+        .status-row { display: flex; align-items: center; gap: 9px; }
+        .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--warning); flex: none; }
+        .dot.online { background: var(--ok); }
+        .dot.error { background: var(--danger); }
+        #connection-text { font-weight: 700; }
+        #session-text, #last-result { margin-top: 9px; color: var(--hint); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+        #last-result.strong { color: var(--text); }
+        .hid-card { border: 2px solid rgba(22, 136, 74, 0.35); }
+        .hid-title { color: var(--ok); font-size: 20px; font-weight: 800; }
+        .hid-help { color: var(--hint); margin-top: 7px; line-height: 1.45; }
+        #hid-preview { min-height: 24px; margin-top: 10px; font-family: Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
+        #hid-capture {
+            position: fixed;
+            left: -10000px;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+        #camera-panel { display: none; padding: 0; overflow: hidden; }
+        #camera-panel.active { display: block; }
+        #reader { width: 100%; min-height: 300px; background: #000; }
+        .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .action-btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+        .action-btn.danger { color: var(--danger); }
+        .queue { margin-top: 10px; font-size: 14px; color: var(--hint); }
+        .queue.has-items { color: var(--warning); font-weight: 700; }
+        .move-step { color: var(--accent); font-weight: 800; }
+        @media (max-width: 420px) {
+            h1 { font-size: 23px; }
+            .app { padding-left: 10px; padding-right: 10px; }
+            .actions { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="tabs">
-        <button id="tab-query" class="tab-btn active" onclick="switchMode('QUERY')">🔍 单次查询</button>
-        <button id="tab-move" class="tab-btn" onclick="switchMode('MOVE')">📍 连续移库</button>
-    </div>
+    <main class="app">
+        <h1>AI 仓储连续扫码</h1>
 
-    <div id="reader"></div>
-    
-    <div class="control-panel">
-        <div id="info">请扫描 <span style="color:#00e676;">【产品条码】</span></div>
-        <button class="btn-cancel" onclick="tg.close()">❌ 取消并返回</button>
-    </div>
+        <div class="tabs">
+            <button id="tab-auto" class="tab-btn active" type="button">🔎 智能扫码</button>
+            <button id="tab-move" class="tab-btn" type="button">📍 显式移库</button>
+        </div>
+
+        <section class="card">
+            <div class="status-row">
+                <span id="connection-dot" class="dot"></span>
+                <span id="connection-text">正在建立安全会话…</span>
+            </div>
+            <div id="session-text">正在读取当前业务状态</div>
+            <div id="queue-text" class="queue">待发送：0 条</div>
+        </section>
+
+        <section class="card hid-card">
+            <div class="hid-title">🔫 蓝牙扫码枪已就绪（HID）</div>
+            <div id="hid-help" class="hid-help">保持本页面开启，直接连续扫码；扫码枪请配置 Enter/CR 结束符。</div>
+            <div id="hid-preview">等待扫码…</div>
+            <input id="hid-capture" type="text" inputmode="none" enterkeyhint="send"
+                   autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+                   aria-label="蓝牙扫码枪输入">
+        </section>
+
+        <section id="camera-panel" class="card">
+            <div id="reader"></div>
+        </section>
+
+        <section class="card">
+            <strong>最近结果</strong>
+            <div id="last-result">尚未扫码</div>
+        </section>
+
+        <div class="actions">
+            <button id="camera-btn" class="action-btn primary" type="button">📷 启用摄像头备用</button>
+            <button id="retry-btn" class="action-btn" type="button">↻ 重试待发送</button>
+            <button id="close-btn" class="action-btn danger" type="button">关闭扫码终端</button>
+        </div>
+    </main>
 
     <script>
-    window.addEventListener("DOMContentLoaded", function() {
-        navigator.permissions.query({ name: "camera" }).then(function(result) {
-            if (result.state === "granted") {
-                // 已经有权限了，扫码时直接拉起，不再弹窗
-                console.log("摄像头权限已就绪");
-            } else {
-                // 引导用户点击一次始终允许
-                console.log("等待获取摄像头权限");
-            }
-        });
-    });
-    </script>
-    <script>
-        const tg = window.Telegram.WebApp;
+        "use strict";
+
+        const tg = window.Telegram && window.Telegram.WebApp
+            ? window.Telegram.WebApp
+            : { initData: "", ready() {}, expand() {}, close() {}, sendData() {} };
         tg.ready();
         tg.expand();
 
-        // 核心状态管理
-        let currentMode = 'QUERY';   // 模式：'QUERY' 或 'MOVE'
-        let moveStep = 1;            // 移库模式下的步骤：1 或 2
-        let scannedProduct = "";     // 暂存第一步扫到的产品码
+        const SESSION_PATH = "/api/v1/scanner/web/session";
+        const SESSION_STATE_PATH = "/api/v1/scanner/session";
+        const DEFAULT_DISPATCH_PATH = "/api/v1/scanner/dispatch";
+        const DB_NAME = "ai-warehouse-scanner";
+        const DB_VERSION = 1;
+        const STORE_PENDING = "pending-events";
+        const CLIENT_ID_KEY = "ai_scanner_client_id_v1";
+        const SEQUENCE_KEY = "ai_scanner_local_sequence_v1";
+        const API_TIMEOUT_MS = 10000;
+        const HID_IDLE_FLUSH_MS = 900;
+        const HID_PHYSICAL_BUFFER_MAX = 256;
+        const CAMERA_DEBOUNCE_MS = 1400;
+        const CAMERA_DECODER_URL = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+        const CAMERA_DECODER_TIMEOUT_MS = 12000;
 
-        // --- 1. 生成提示音 (无需音频文件，纯代码发声) ---
-        function playBeep() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.type = "sine";
-                osc.frequency.setValueAtTime(880, ctx.currentTime); // 频率，清脆的滴声
-                gain.gain.setValueAtTime(0.5, ctx.currentTime);     // 音量
-                osc.start();
-                osc.stop(ctx.currentTime + 0.1); // 持续 100 毫秒
-            } catch(e) {}
+        const elements = {
+            connectionDot: document.getElementById("connection-dot"),
+            connectionText: document.getElementById("connection-text"),
+            sessionText: document.getElementById("session-text"),
+            queueText: document.getElementById("queue-text"),
+            hidCapture: document.getElementById("hid-capture"),
+            hidPreview: document.getElementById("hid-preview"),
+            hidHelp: document.getElementById("hid-help"),
+            cameraPanel: document.getElementById("camera-panel"),
+            cameraButton: document.getElementById("camera-btn"),
+            retryButton: document.getElementById("retry-btn"),
+            closeButton: document.getElementById("close-btn"),
+            lastResult: document.getElementById("last-result"),
+            tabAuto: document.getElementById("tab-auto"),
+            tabMove: document.getElementById("tab-move"),
+        };
+
+        function resolveEntryMode() {
+            const requested = String(new URLSearchParams(window.location.search).get("mode") || "")
+                .trim()
+                .toLowerCase();
+            return requested === "terminal" ? "terminal" : "legacy";
         }
 
-        // --- 2. 模式切换 UI 逻辑 ---
-        function switchMode(mode) {
-            currentMode = mode;
-            document.getElementById('tab-query').classList.remove('active');
-            document.getElementById('tab-move').classList.remove('active');
-            
-            if (mode === 'QUERY') {
-                document.getElementById('tab-query').classList.add('active');
-                document.getElementById('info').innerHTML = `请扫描 <span style="color:#00e676;">【产品条码】</span> 查档案`;
-            } else {
-                document.getElementById('tab-move').classList.add('active');
-                moveStep = 1;
-                scannedProduct = "";
-                document.getElementById('info').innerHTML = `第一步：扫描 <span style="color:#00e676;">【产品条码】</span>`;
+        const entryMode = resolveEntryMode();
+        if (
+            entryMode === "terminal"
+            && typeof tg.enableClosingConfirmation === "function"
+        ) {
+            tg.enableClosingConfirmation();
+        }
+
+        const state = {
+            mode: "AUTO",
+            moveStep: 1,
+            moveProduct: "",
+            db: null,
+            clientId: loadOrCreateClientId(),
+            accessToken: "",
+            deviceId: "",
+            operatorId: 0,
+            dispatchPath: DEFAULT_DISPATCH_PATH,
+            tokenExpiresAt: 0,
+            sessionPromise: null,
+            processingQueue: false,
+            camera: null,
+            cameraActive: false,
+            cameraBusy: false,
+            lastCameraValue: "",
+            lastCameraAt: 0,
+            hidTimer: null,
+            hidPhysicalActive: false,
+            hidPhysicalBuffer: "",
+            hidPhysicalOverflow: false,
+            composing: false,
+            legacyMode: entryMode !== "terminal",
+            cameraDecoderPromise: null,
+        };
+
+        function resolveApiBase() {
+            const configured = new URLSearchParams(window.location.search).get("api");
+            const candidate = String(configured || window.location.origin || "").trim();
+            try {
+                const parsed = new URL(candidate);
+                if (parsed.protocol !== "https:") throw new Error("扫码服务必须使用 HTTPS");
+                return parsed.href.replace(/\/$/, "");
+            } catch (_) {
+                return "";
             }
         }
 
-        // --- 3. 扫码成功回调 ---
-        const onScanSuccess = (decodedText) => {
-            decodedText = decodedText.trim().toUpperCase();
+        const apiBase = resolveApiBase();
 
-            // 模式A：单次查询 (主流程)
-            if (currentMode === 'QUERY') {
-                playBeep();
-                document.getElementById("info").innerText = "识别成功，正在查询...";
-                html5QrCode.stop().then(() => {
-                    tg.sendData(decodedText); 
-                    tg.close(); 
-                }).catch(() => {
-                    tg.sendData(decodedText);
-                    tg.close();
+        function randomAscii(size = 16) {
+            const bytes = new Uint8Array(size);
+            if (window.crypto && window.crypto.getRandomValues) {
+                window.crypto.getRandomValues(bytes);
+            } else {
+                for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+            }
+            return Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+        }
+
+        function loadOrCreateClientId() {
+            try {
+                const saved = localStorage.getItem(CLIENT_ID_KEY);
+                if (/^[A-Za-z0-9._:-]{8,64}$/.test(saved || "")) return saved;
+                const created = `tgweb.${randomAscii(12)}`;
+                localStorage.setItem(CLIENT_ID_KEY, created);
+                return created;
+            } catch (_) {
+                return `tgweb.${randomAscii(12)}`;
+            }
+        }
+
+        function nextSequence() {
+            let sequence = 0;
+            try {
+                sequence = Number.parseInt(localStorage.getItem(SEQUENCE_KEY) || "0", 10);
+                if (!Number.isSafeInteger(sequence) || sequence < 0) sequence = 0;
+                sequence += 1;
+                localStorage.setItem(SEQUENCE_KEY, String(sequence));
+            } catch (_) {
+                sequence = Math.floor(Date.now() / 1000);
+            }
+            return sequence;
+        }
+
+        function normalizeScanValue(value) {
+            return String(value || "")
+                .normalize("NFKC")
+                .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+                .trim()
+                .toUpperCase();
+        }
+
+        function buildEnvelope(rawValue, transport) {
+            const normalized = normalizeScanValue(rawValue);
+            if (!normalized || normalized.length > 256) throw new Error("扫码内容为空或长度异常");
+            const sequence = nextSequence();
+            return {
+                event_id: `${state.clientId}:${String(sequence).padStart(8, "0")}:${randomAscii(4)}`,
+                device_id: state.deviceId || state.clientId,
+                operator_id: state.operatorId || 0,
+                raw_value: String(rawValue || ""),
+                normalized_value: normalized,
+                barcode: normalized,
+                transport,
+                scanned_at: new Date().toISOString(),
+                tenant_id: "default",
+                api_base: state.legacyMode ? "" : apiBase,
+                order_id: "",
+                quantity: 1,
+                local_sequence: sequence,
+                schema_version: "1.0",
+            };
+        }
+
+        function requestPayload(envelope) {
+            return {
+                event_id: envelope.event_id,
+                order_id: envelope.order_id,
+                barcode: envelope.barcode,
+                quantity: envelope.quantity,
+                transport: envelope.transport,
+                raw_value: envelope.raw_value,
+                scanned_at: envelope.scanned_at,
+                local_sequence: envelope.local_sequence,
+                schema_version: envelope.schema_version,
+            };
+        }
+
+        function setConnection(kind, text) {
+            elements.connectionDot.className = `dot${kind ? ` ${kind}` : ""}`;
+            elements.connectionText.textContent = text;
+        }
+
+        function showResult(text, strong = false) {
+            elements.lastResult.textContent = String(text || "");
+            elements.lastResult.classList.toggle("strong", strong);
+        }
+
+        function showError(error) {
+            const message = error && error.message ? error.message : String(error || "未知错误");
+            showResult(`⚠️ ${message}`, true);
+        }
+
+        function formatSession(payload) {
+            if (!payload || payload.status === "idle") return "当前没有活动出库订单；可扫描订单、商品或库位。";
+            const orderId = payload.order_id || "未标注";
+            const totals = Number.isFinite(payload.scanned_total) && Number.isFinite(payload.ordered_total)
+                ? `${payload.scanned_total}/${payload.ordered_total} 件` : "";
+            const products = Number.isFinite(payload.scanned_products) && Number.isFinite(payload.ordered_products)
+                ? `${payload.scanned_products}/${payload.ordered_products} 款` : "";
+            return `订单 ${orderId}${totals ? `\n进度 ${totals}` : ""}${products ? `；商品 ${products}` : ""}`;
+        }
+
+        function renderAck(payload, envelope) {
+            const duplicateHasCurrentSnapshot = payload.status !== "duplicate" || (
+                Number.isFinite(payload.revision)
+                && Number.isFinite(payload.scanned_total)
+            );
+            if (
+                payload.status === "idle"
+                || (payload.order_id && duplicateHasCurrentSnapshot)
+            ) {
+                elements.sessionText.textContent = formatSession(payload);
+            }
+            if (payload.status === "query_result") {
+                showResult(payload.message || `已查询 ${payload.reference || envelope.barcode}`, true);
+            } else if (payload.status === "order_started") {
+                showResult(payload.message || `订单 ${payload.order_id} 已载入`, true);
+            } else if (payload.status === "accepted" || payload.status === "duplicate") {
+                const label = payload.status === "duplicate" ? "重复事件已确认，未重复计数" : "已入账";
+                const sessionSummary = duplicateHasCurrentSnapshot
+                    ? `\n${formatSession(payload)}`
+                    : "";
+                showResult(`${envelope.barcode}：${label}${sessionSummary}`, true);
+            } else {
+                showResult(payload.message || `${envelope.barcode}：服务器已确认`, true);
+            }
+        }
+
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) {
+                    reject(new Error("当前浏览器不支持本地待发队列"));
+                    return;
+                }
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = () => {
+                    const database = request.result;
+                    if (!database.objectStoreNames.contains(STORE_PENDING)) {
+                        database.createObjectStore(STORE_PENDING, { keyPath: "event_id" });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error("本地队列初始化失败"));
+            });
+        }
+
+        function getPending() {
+            return new Promise((resolve, reject) => {
+                const transaction = state.db.transaction(STORE_PENDING, "readonly");
+                const request = transaction.objectStore(STORE_PENDING).getAll();
+                request.onsuccess = () => resolve((request.result || []).sort((a, b) => a.local_sequence - b.local_sequence));
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        function putPending(envelope) {
+            return new Promise((resolve, reject) => {
+                const transaction = state.db.transaction(STORE_PENDING, "readwrite");
+                const request = transaction.objectStore(STORE_PENDING).put(envelope);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        function deletePending(eventId) {
+            return new Promise((resolve, reject) => {
+                const transaction = state.db.transaction(STORE_PENDING, "readwrite");
+                const request = transaction.objectStore(STORE_PENDING).delete(eventId);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        function isCurrentQueueOwner(envelope) {
+            return Boolean(
+                state.deviceId
+                && envelope
+                && envelope.device_id === state.deviceId
+                && envelope.api_base === apiBase
+            );
+        }
+
+        async function updateQueueCount() {
+            if (!state.db) return;
+            const pending = await getPending();
+            const current = pending.filter(isCurrentQueueOwner).length;
+            const retained = pending.length - current;
+            elements.queueText.textContent = retained > 0
+                ? `本终端待发送：${current} 条；其他终端保留：${retained} 条`
+                : `待发送：${current} 条`;
+            elements.queueText.classList.toggle("has-items", current > 0);
+        }
+
+        async function fetchJson(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                let payload = {};
+                try { payload = await response.json(); } catch (_) {}
+                if (!response.ok) {
+                    const error = new Error(payload.detail || payload.message || `HTTP ${response.status}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                return payload;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function exchangeWebSession(force = false) {
+            if (!force && state.accessToken && Date.now() < state.tokenExpiresAt - 30000) return;
+            if (state.sessionPromise) return state.sessionPromise;
+            state.sessionPromise = (async () => {
+                if (!tg.initData) throw new Error("当前入口没有 Telegram 安全身份，请从机器人内的扫码终端菜单重新打开");
+                if (!apiBase) throw new Error("扫码服务地址无效");
+                const payload = await fetchJson(`${apiBase}${SESSION_PATH}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ init_data: tg.initData, client_id: state.clientId }),
                 });
+                if (!payload.access_token || !payload.device_id) throw new Error("扫码服务没有返回完整的短期会话");
+                state.accessToken = payload.access_token;
+                state.deviceId = payload.device_id;
+                state.operatorId = Number(payload.operator_id || 0);
+                state.dispatchPath = payload.dispatch_url || DEFAULT_DISPATCH_PATH;
+                state.tokenExpiresAt = Date.now() + Math.max(60, Number(payload.expires_in || 300)) * 1000;
+                setConnection("online", "扫码服务已连接");
+            })();
+            try {
+                await state.sessionPromise;
+            } finally {
+                state.sessionPromise = null;
+            }
+        }
+
+        function authorizedHeaders() {
+            return {
+                "Authorization": `Bearer ${state.accessToken}`,
+                "X-Scanner-Device-Id": state.deviceId,
+                "Content-Type": "application/json",
+            };
+        }
+
+        async function loadServerSession() {
+            await exchangeWebSession();
+            const payload = await fetchJson(`${apiBase}${SESSION_STATE_PATH}`, { headers: authorizedHeaders() });
+            elements.sessionText.textContent = formatSession(payload);
+        }
+
+        async function sendEnvelope(envelope, refreshed = false) {
+            await exchangeWebSession();
+            try {
+                return await fetchJson(`${apiBase}${state.dispatchPath}`, {
+                    method: "POST",
+                    headers: authorizedHeaders(),
+                    body: JSON.stringify(requestPayload(envelope)),
+                });
+            } catch (error) {
+                if (error.status === 401 && !refreshed) {
+                    state.accessToken = "";
+                    state.tokenExpiresAt = 0;
+                    await exchangeWebSession(true);
+                    return sendEnvelope(envelope, true);
+                }
+                throw error;
+            }
+        }
+
+        async function processQueue() {
+            if (state.processingQueue || state.legacyMode || !state.db) return;
+            state.processingQueue = true;
+            try {
+                while (true) {
+                    const pending = await getPending();
+                    await updateQueueCount();
+                    if (!pending.length) break;
+                    const envelope = pending.find(isCurrentQueueOwner);
+                    if (!envelope) {
+                        showResult("已安全保留其他账号或服务器的待发扫码", true);
+                        break;
+                    }
+                    try {
+                        setConnection("", "正在发送扫码事件…");
+                        const payload = await sendEnvelope(envelope);
+                        await deletePending(envelope.event_id);
+                        renderAck(payload, envelope);
+                        setConnection("online", "扫码服务已连接");
+                    } catch (error) {
+                        if (error.status === 422) {
+                            await deletePending(envelope.event_id);
+                            showError(error);
+                            setConnection("error", "扫码内容被拒绝");
+                            continue;
+                        }
+                        if (error.status === 409) {
+                            showError(error);
+                            setConnection("error", "需要先处理当前业务状态");
+                        } else if (error.status === 401 || error.status === 403) {
+                            showError("安全会话已失效，请关闭后从 Telegram 重新打开");
+                            setConnection("error", "安全会话失效");
+                        } else {
+                            showError("网络暂不可用，扫码已保存在本机待发送队列");
+                            setConnection("error", "连接中断，已安全暂存");
+                        }
+                        break;
+                    }
+                }
+            } finally {
+                state.processingQueue = false;
+                await updateQueueCount();
+                armHidCapture();
+            }
+        }
+
+        function canUseLegacySendData() {
+            return Boolean(
+                window.Telegram
+                && window.Telegram.WebApp
+                && tg.platform
+                && tg.platform !== "unknown"
+                && typeof tg.sendData === "function"
+            );
+        }
+
+        async function submitAutomaticScan(rawValue, transport) {
+            if (!state.legacyMode && !state.deviceId) {
+                throw new Error("首次使用必须先连接扫码服务，当前扫码未入队");
+            }
+            const envelope = buildEnvelope(rawValue, transport);
+            if (state.legacyMode) {
+                if (!canUseLegacySendData()) throw new Error("当前页面不在 Telegram 中，无法使用兼容扫码");
+                showResult("兼容模式正在发送单次扫码…", true);
+                tg.sendData(envelope.barcode);
+                tg.close();
+                return;
+            }
+            await putPending(envelope);
+            await updateQueueCount();
+            playBeep();
+            showResult(`${envelope.barcode}\n已进入待发队列`, true);
+            processQueue();
+        }
+
+        async function submitMoveScan(rawValue) {
+            if (!state.legacyMode) {
+                throw new Error("显式移库请从 Telegram 摄像头单次入口打开");
+            }
+            const normalized = normalizeScanValue(rawValue);
+            if (!normalized) return;
+            if (state.moveStep === 1) {
+                state.moveProduct = normalized;
+                state.moveStep = 2;
+                elements.hidHelp.innerHTML = `已锁定产品: <span class="move-step">${escapeHtml(normalized)}</span><br>第二步：扫描新库位码`;
+                showResult(`产品 ${normalized} 已锁定`, true);
+                playBeep();
+                return;
+            }
+            if (normalized === state.moveProduct) {
+                showError("新库位码不能与产品码相同");
+                return;
+            }
+            if (!canUseLegacySendData()) throw new Error("当前页面不在 Telegram 中，无法提交移库");
+            playBeep();
+            tg.sendData(`MOVE_LOC|${state.moveProduct}|${normalized}`);
+            tg.close();
+        }
+
+        async function handleScan(rawValue, transport) {
+            const normalized = normalizeScanValue(rawValue);
+            if (!normalized) return;
+            elements.hidPreview.textContent = normalized;
+            try {
+                if (state.mode === "MOVE") await submitMoveScan(rawValue);
+                else await submitAutomaticScan(rawValue, transport);
+            } catch (error) {
+                showError(error);
+            } finally {
+                elements.hidCapture.value = "";
+                armHidCapture();
+            }
+        }
+
+        function escapeHtml(value) {
+            const node = document.createElement("span");
+            node.textContent = value;
+            return node.innerHTML;
+        }
+
+        function playBeep() {
+            try {
+                const context = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = context.createOscillator();
+                const gain = context.createGain();
+                oscillator.connect(gain);
+                gain.connect(context.destination);
+                oscillator.frequency.value = 880;
+                gain.gain.value = 0.22;
+                oscillator.start();
+                oscillator.stop(context.currentTime + 0.08);
+            } catch (_) {}
+            if (tg.HapticFeedback && typeof tg.HapticFeedback.impactOccurred === "function") {
+                tg.HapticFeedback.impactOccurred("light");
+            }
+        }
+
+        function flushHidInput() {
+            clearTimeout(state.hidTimer);
+            const value = elements.hidCapture.value;
+            elements.hidCapture.value = "";
+            if (normalizeScanValue(value)) handleScan(value, "hid");
+        }
+
+        function scheduleHidFlush() {
+            if (state.cameraActive || state.hidPhysicalActive) {
+                elements.hidCapture.value = "";
+                return;
+            }
+            clearTimeout(state.hidTimer);
+            const normalized = normalizeScanValue(elements.hidCapture.value);
+            elements.hidPreview.textContent = normalized || "等待扫码…";
+            if (!state.composing && normalized.length >= 6) {
+                state.hidTimer = setTimeout(flushHidInput, HID_IDLE_FLUSH_MS);
+            }
+        }
+
+        function physicalHidCharacter(event) {
+            const code = String(event.code || "");
+            if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+            if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+            if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+            if (code === "Minus") return "-";
+            if (code === "Period" || code === "NumpadDecimal") return ".";
+            if (code === "NumpadAdd" || (code === "Equal" && event.shiftKey)) return "+";
+            return "";
+        }
+
+        function clearPhysicalHidState() {
+            state.hidPhysicalActive = false;
+            state.hidPhysicalBuffer = "";
+            state.hidPhysicalOverflow = false;
+        }
+
+        function flushPhysicalHidInput() {
+            clearTimeout(state.hidTimer);
+            const value = state.hidPhysicalBuffer;
+            const overflow = state.hidPhysicalOverflow;
+            clearPhysicalHidState();
+            elements.hidCapture.value = "";
+            if (overflow) {
+                showError(`扫码内容超过 ${HID_PHYSICAL_BUFFER_MAX} 个字符，已整条丢弃`);
+                elements.hidPreview.textContent = "等待扫码…";
+                return;
+            }
+            if (normalizeScanValue(value)) handleScan(value, "hid");
+        }
+
+        function schedulePhysicalHidFlush() {
+            clearTimeout(state.hidTimer);
+            state.hidTimer = setTimeout(flushPhysicalHidInput, HID_IDLE_FLUSH_MS);
+        }
+
+        function handleHidKeydown(event) {
+            if (state.cameraActive) return;
+            const terminator = event.code === "Enter" || event.code === "NumpadEnter" || event.code === "Tab";
+            if (terminator) {
+                event.preventDefault();
+                if (state.hidPhysicalActive) flushPhysicalHidInput();
+                else flushHidInput();
+                return;
+            }
+            if (state.composing || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
+            const character = physicalHidCharacter(event);
+            if (!character) return;
+
+            event.preventDefault();
+            if (!state.hidPhysicalActive) {
+                clearTimeout(state.hidTimer);
+                elements.hidCapture.value = "";
+                state.hidPhysicalActive = true;
+            }
+            if (!state.hidPhysicalOverflow) {
+                if (state.hidPhysicalBuffer.length >= HID_PHYSICAL_BUFFER_MAX) {
+                    state.hidPhysicalBuffer = "";
+                    state.hidPhysicalOverflow = true;
+                    elements.hidPreview.textContent = "扫码内容过长，等待结束符后丢弃…";
+                } else {
+                    state.hidPhysicalBuffer += character;
+                    elements.hidPreview.textContent = state.hidPhysicalBuffer;
+                }
+            }
+            schedulePhysicalHidFlush();
+        }
+
+        function armHidCapture() {
+            if (state.cameraActive) return;
+            setTimeout(() => {
+                if (state.cameraActive || document.hidden) return;
+                try { elements.hidCapture.focus({ preventScroll: true }); }
+                catch (_) { elements.hidCapture.focus(); }
+            }, 80);
+        }
+
+        function switchMode(mode) {
+            if (mode === "MOVE" && !state.legacyMode) {
+                state.mode = "AUTO";
+                showError("常驻扫码终端不执行移库；请使用 Telegram 摄像头单次入口");
+                armHidCapture();
+                return;
+            }
+            state.mode = mode;
+            state.moveStep = 1;
+            state.moveProduct = "";
+            elements.tabAuto.classList.toggle("active", mode === "AUTO");
+            elements.tabMove.classList.toggle("active", mode === "MOVE");
+            if (mode === "MOVE") {
+                elements.hidHelp.innerHTML = "显式移库第一步：扫描 <span class=\"move-step\">产品条码</span>";
+                showResult("移库模式不会自动猜测业务；请依次扫描产品和新库位。", true);
+            } else {
+                elements.hidHelp.textContent = "保持本页面开启，直接连续扫码；订单、商品和库位由服务端精确判断。";
+                showResult("智能扫码已恢复", false);
+            }
+            armHidCapture();
+        }
+
+        function loadCameraDecoder() {
+            if (typeof window.Html5Qrcode === "function") return Promise.resolve();
+            if (state.cameraDecoderPromise) return state.cameraDecoderPromise;
+            state.cameraDecoderPromise = new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                let settled = false;
+                const finish = error => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    script.onload = null;
+                    script.onerror = null;
+                    if (error) {
+                        script.remove();
+                        state.cameraDecoderPromise = null;
+                        reject(error);
+                        return;
+                    }
+                    if (typeof window.Html5Qrcode !== "function") {
+                        script.remove();
+                        state.cameraDecoderPromise = null;
+                        reject(new Error("摄像头解码组件加载结果异常，请重试"));
+                        return;
+                    }
+                    resolve();
+                };
+                const timer = setTimeout(
+                    () => finish(new Error("摄像头解码组件加载超时，请检查网络后重试")),
+                    CAMERA_DECODER_TIMEOUT_MS
+                );
+                script.src = CAMERA_DECODER_URL;
+                script.async = true;
+                script.crossOrigin = "anonymous";
+                script.onload = () => finish(null);
+                script.onerror = () => finish(new Error("摄像头解码组件加载失败，请检查网络后重试"));
+                document.head.appendChild(script);
+            });
+            return state.cameraDecoderPromise;
+        }
+
+        async function startCamera() {
+            if (state.cameraActive) return;
+            await loadCameraDecoder();
+            clearTimeout(state.hidTimer);
+            clearPhysicalHidState();
+            elements.hidCapture.value = "";
+            state.camera = state.camera || new Html5Qrcode("reader");
+            elements.cameraPanel.classList.add("active");
+            elements.cameraButton.textContent = "⏹ 关闭摄像头";
+            state.cameraActive = true;
+            elements.hidCapture.blur();
+            try {
+                await state.camera.start(
+                    { facingMode: "environment" },
+                    { fps: 18, qrbox: { width: 280, height: 190 }, aspectRatio: 1.0 },
+                    onCameraScan,
+                    () => {}
+                );
+            } catch (_) {
+                state.cameraActive = false;
+                elements.cameraPanel.classList.remove("active");
+                elements.cameraButton.textContent = "📷 启用摄像头备用";
+                armHidCapture();
+                throw new Error("摄像头启动失败，请检查权限");
+            }
+        }
+
+        async function stopCamera() {
+            if (!state.cameraActive || !state.camera) return;
+            state.cameraActive = false;
+            try {
+                await state.camera.stop();
+                state.camera.clear();
+            } catch (_) {}
+            elements.cameraPanel.classList.remove("active");
+            elements.cameraButton.textContent = "📷 启用摄像头备用";
+            armHidCapture();
+        }
+
+        async function onCameraScan(decodedText) {
+            const normalized = normalizeScanValue(decodedText);
+            const now = Date.now();
+            if (state.cameraBusy || (normalized === state.lastCameraValue && now - state.lastCameraAt < CAMERA_DEBOUNCE_MS)) return;
+            state.cameraBusy = true;
+            state.lastCameraValue = normalized;
+            state.lastCameraAt = now;
+            try {
+                if (state.camera && state.cameraActive) state.camera.pause(true);
+                await handleScan(decodedText, "camera");
+            } finally {
+                setTimeout(() => {
+                    try { if (state.camera && state.cameraActive) state.camera.resume(); } catch (_) {}
+                    state.cameraBusy = false;
+                }, 650);
+            }
+        }
+
+        async function bootstrap() {
+            if (!state.legacyMode) {
+                // 常驻终端保持无业务选择；显式移库仍保留在旧单次兼容入口。
+                elements.tabMove.hidden = true;
+                elements.tabAuto.parentElement.style.gridTemplateColumns = "1fr";
+            }
+
+            elements.hidCapture.addEventListener("keydown", handleHidKeydown);
+            elements.hidCapture.addEventListener("input", scheduleHidFlush);
+            elements.hidCapture.addEventListener("compositionstart", () => { state.composing = true; });
+            elements.hidCapture.addEventListener("compositionend", () => {
+                state.composing = false;
+                scheduleHidFlush();
+            });
+            elements.hidCapture.addEventListener("blur", armHidCapture);
+
+            elements.tabAuto.addEventListener("click", () => switchMode("AUTO"));
+            if (state.legacyMode) {
+                elements.tabMove.addEventListener("click", () => switchMode("MOVE"));
+            }
+            elements.cameraButton.addEventListener("click", async () => {
+                try {
+                    if (state.cameraActive) await stopCamera();
+                    else await startCamera();
+                } catch (error) { showError(error); }
+            });
+            elements.retryButton.addEventListener("click", () => processQueue());
+            elements.closeButton.addEventListener("click", () => tg.close());
+            window.addEventListener("online", () => processQueue());
+            document.addEventListener("visibilitychange", () => {
+                if (!document.hidden) {
+                    armHidCapture();
+                    processQueue();
+                }
+            });
+
+            if (state.legacyMode) {
+                setConnection("error", "兼容单次模式");
+                elements.sessionText.textContent = "请从机器人新的“扫码终端”菜单打开，才能连续扫码；当前入口仍可完成一次查询或移库。";
+                elements.queueText.textContent = "当前扫码将通过 Telegram 原通道发送";
+                armHidCapture();
                 return;
             }
 
-            // 模式B：连续移库流程
-            if (currentMode === 'MOVE') {
-                if (moveStep === 1) {
-                    playBeep();
-                    scannedProduct = decodedText;
-                    moveStep = 2;
-                    document.getElementById("info").innerHTML = `已锁定产品: <span class="highlight">${scannedProduct}</span><br>第二步：请扫描 <span style="color:#2196F3;">【新库位码】</span>`;
-                    
-                    // 暂停扫描器缓冲 1 秒，防止立刻重扫
-                    html5QrCode.pause();
-                    setTimeout(() => { html5QrCode.resume(); }, 1000);
-                } 
-                else if (moveStep === 2) {
-                    // 🚨 核心防抖：如果扫到的码跟刚才产品码一模一样，直接忽略，不发声！
-                    if (decodedText === scannedProduct) {
-                        return; 
-                    }
-                    
-                    // 扫到了不同的码，判定为库位码
-                    playBeep();
-                    document.getElementById("info").innerText = "数据打包中，请稍候...";
-                    let payload = `MOVE_LOC|${scannedProduct}|${decodedText}`;
-                    
-                    html5QrCode.stop().then(() => {
-                        tg.sendData(payload);
-                        tg.close();
-                    }).catch(() => {
-                        tg.sendData(payload);
-                        tg.close();
-                    });
-                }
-            }
-        };
-
-        // --- 4. 启动扫描引擎 ---
-        const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 20, qrbox: { width: 280, height: 200 }, aspectRatio: 1.0 };
-        
-        async function startScanner() {
             try {
-                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
-            } catch (err) {
-                document.getElementById("info").innerText = "摄像头启动失败，请检查系统权限";
+                state.db = await openDatabase();
+                await updateQueueCount();
+            } catch (error) {
+                setConnection("error", "本地安全队列不可用");
+                showError(error);
             }
+
+            try {
+                await exchangeWebSession();
+                await loadServerSession();
+                await processQueue();
+            } catch (error) {
+                setConnection("error", "扫码服务连接失败");
+                showError(error);
+            }
+            armHidCapture();
         }
 
-        startScanner();
+        bootstrap();
     </script>
 </body>
 </html>
