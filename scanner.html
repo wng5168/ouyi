@@ -68,13 +68,23 @@
         .hid-help { color: var(--hint); margin-top: 7px; line-height: 1.45; }
         #hid-preview { min-height: 24px; margin-top: 10px; font-family: Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
         #hid-capture {
-            position: fixed;
-            left: -10000px;
-            top: 0;
-            width: 1px;
-            height: 1px;
-            opacity: 0;
-            pointer-events: none;
+            display: block;
+            width: 100%;
+            min-height: 48px;
+            margin-top: 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Consolas, monospace;
+            font-size: 18px;
+            text-transform: uppercase;
+        }
+        #hid-capture:focus {
+            border-color: var(--ok);
+            box-shadow: 0 0 0 3px rgba(22, 136, 74, 0.14);
+            outline: none;
         }
         #camera-panel { display: none; padding: 0; overflow: hidden; }
         #camera-panel.active { display: block; }
@@ -113,10 +123,11 @@
         <section class="card hid-card">
             <div class="hid-title">🔫 蓝牙扫码枪已就绪（HID）</div>
             <div id="hid-help" class="hid-help">保持本页面开启，直接连续扫码；扫码枪请配置 Enter/CR 结束符。</div>
-            <div id="hid-preview">等待扫码…</div>
             <input id="hid-capture" type="text" inputmode="none" enterkeyhint="send"
-                   autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   virtualkeyboardpolicy="manual" autofocus placeholder="等待扫码…"
                    aria-label="蓝牙扫码枪输入">
+            <div id="hid-preview">输入框已就绪</div>
         </section>
 
         <section id="camera-panel" class="card">
@@ -154,8 +165,6 @@
         const SEQUENCE_KEY = "ai_scanner_local_sequence_v1";
         const API_TIMEOUT_MS = 10000;
         const HID_FRAME_TIMEOUT_MS = 1800;
-        const HID_MIN_FRAME_LENGTH = 3;
-        const HID_PHYSICAL_BUFFER_MAX = 256;
         const CAMERA_DEBOUNCE_MS = 1400;
         const CAMERA_DECODER_URL = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
         const CAMERA_DECODER_TIMEOUT_MS = 12000;
@@ -211,10 +220,7 @@
             lastCameraValue: "",
             lastCameraAt: 0,
             hidTimer: null,
-            hidPhysicalActive: false,
-            hidPhysicalBuffer: "",
-            hidPhysicalOverflow: false,
-            hidPhysicalIncomplete: false,
+            hidPendingTerminator: false,
             composing: false,
             legacyMode: entryMode !== "terminal",
             cameraDecoderPromise: null,
@@ -528,8 +534,12 @@
                     } catch (error) {
                         if (error.status === 422) {
                             await deletePending(envelope.event_id);
-                            showError(`${error.message || "扫码内容无法识别"}；本次未计数，请重新完整扫描`);
-                            elements.hidPreview.textContent = "等待扫码…";
+                            const detail = String(error.message || "扫码内容无法识别");
+                            const suffix = detail.includes("本次未计数")
+                                ? ""
+                                : "；本次未计数";
+                            showError(`${detail}${suffix}，请重新完整扫描`);
+                            elements.hidPreview.textContent = `未计数：${envelope.barcode}（长度 ${envelope.barcode.length}）`;
                             setConnection("online", "扫码服务已连接");
                             continue;
                         }
@@ -644,65 +654,18 @@
             }
         }
 
-        function physicalHidCharacter(event) {
-            const code = String(event.code || "");
-            if (/^Key[A-Z]$/.test(code)) return code.slice(3);
-            if (/^Digit[0-9]$/.test(code)) return code.slice(5);
-            if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
-            if (code === "Minus") return "-";
-            if (code === "Period" || code === "NumpadDecimal") return ".";
-            if (code === "NumpadAdd" || (code === "Equal" && event.shiftKey)) return "+";
-            return "";
-        }
-
-        function clearPhysicalHidState() {
-            state.hidPhysicalActive = false;
-            state.hidPhysicalBuffer = "";
-            state.hidPhysicalOverflow = false;
-            state.hidPhysicalIncomplete = false;
-        }
-
         function resetHidFrame() {
             clearTimeout(state.hidTimer);
             state.hidTimer = null;
-            clearPhysicalHidState();
+            state.hidPendingTerminator = false;
             elements.hidCapture.value = "";
         }
 
-        function selectHidFrame() {
-            const nativeValue = String(elements.hidCapture.value || "");
-            const physicalValue = String(state.hidPhysicalBuffer || "");
-            const nativeNormalized = normalizeScanValue(nativeValue);
-            const physicalNormalized = normalizeScanValue(physicalValue);
-            const physicalUsable = Boolean(
-                state.hidPhysicalActive
-                && !state.hidPhysicalIncomplete
-                && physicalNormalized
-            );
-            if (physicalUsable && physicalNormalized.length >= nativeNormalized.length) {
-                return { raw: physicalValue, normalized: physicalNormalized };
-            }
-            if (nativeNormalized) {
-                return { raw: nativeValue, normalized: nativeNormalized };
-            }
-            return { raw: "", normalized: "" };
-        }
-
-        function previewHidFrame() {
-            const candidate = selectHidFrame();
-            elements.hidPreview.textContent = candidate.normalized || "等待扫码…";
-        }
-
         function expireHidFrame() {
-            const candidate = selectHidFrame();
-            const hadInput = Boolean(
-                candidate.normalized
-                || state.hidPhysicalBuffer
-                || elements.hidCapture.value
-            );
+            const normalized = normalizeScanValue(elements.hidCapture.value);
             resetHidFrame();
-            elements.hidPreview.textContent = "等待扫码…";
-            if (hadInput) {
+            elements.hidPreview.textContent = "输入框已就绪";
+            if (normalized) {
                 showError("未收到扫码枪结束符，本次未发送；请设置 Enter/CR 后重新扫描");
             }
             armHidCapture();
@@ -710,32 +673,25 @@
 
         function scheduleHidFrameTimeout() {
             clearTimeout(state.hidTimer);
-            previewHidFrame();
+            const normalized = normalizeScanValue(elements.hidCapture.value);
+            elements.hidPreview.textContent = normalized
+                ? `已接收 ${normalized.length} 个字符，等待结束符…`
+                : "输入框已就绪";
+            if (!normalized) return;
             state.hidTimer = setTimeout(expireHidFrame, HID_FRAME_TIMEOUT_MS);
         }
 
         function flushHidFrame() {
-            const candidate = selectHidFrame();
-            const overflow = state.hidPhysicalOverflow;
-            const ambiguous = state.hidPhysicalIncomplete && !candidate.normalized;
+            const rawValue = String(elements.hidCapture.value || "");
+            const normalized = normalizeScanValue(rawValue);
             resetHidFrame();
-            if (overflow) {
-                showError(`扫码内容超过 ${HID_PHYSICAL_BUFFER_MAX} 个字符，本次未发送`);
-                elements.hidPreview.textContent = "等待扫码…";
+            if (!normalized) {
+                showError("没有收到扫码内容，请点击输入框后重新扫描");
+                elements.hidPreview.textContent = "输入框已就绪";
                 armHidCapture();
                 return;
             }
-            if (ambiguous || (
-                candidate.normalized
-                && candidate.normalized.length < HID_MIN_FRAME_LENGTH
-            )) {
-                showError("扫码数据不完整，本次未发送；请重新扫描完整条码");
-                elements.hidPreview.textContent = "等待扫码…";
-                armHidCapture();
-                return;
-            }
-            if (candidate.normalized) handleScan(candidate.raw, "hid");
-            else armHidCapture();
+            handleScan(rawValue, "hid");
         }
 
         function scheduleHidInput() {
@@ -758,29 +714,13 @@
             );
             if (terminator) {
                 event.preventDefault();
-                flushHidFrame();
+                if (state.composing || event.isComposing) {
+                    state.hidPendingTerminator = true;
+                } else {
+                    setTimeout(flushHidFrame, 0);
+                }
                 return;
             }
-            if (event.ctrlKey || event.altKey || event.metaKey) return;
-            const character = physicalHidCharacter(event);
-            const printableFallback = key.length === 1;
-            if (!character && !printableFallback) return;
-
-            if (!state.hidPhysicalActive) {
-                clearTimeout(state.hidTimer);
-                state.hidPhysicalActive = true;
-            }
-            if (!character) state.hidPhysicalIncomplete = true;
-            if (!state.hidPhysicalOverflow) {
-                if (state.hidPhysicalBuffer.length >= HID_PHYSICAL_BUFFER_MAX) {
-                    state.hidPhysicalBuffer = "";
-                    state.hidPhysicalOverflow = true;
-                    elements.hidPreview.textContent = "扫码内容过长，等待结束符后丢弃…";
-                } else if (character) {
-                    state.hidPhysicalBuffer += character;
-                }
-            }
-            scheduleHidFrameTimeout();
         }
 
         function armHidCapture() {
@@ -857,9 +797,7 @@
         async function startCamera() {
             if (state.cameraActive) return;
             await loadCameraDecoder();
-            clearTimeout(state.hidTimer);
-            clearPhysicalHidState();
-            elements.hidCapture.value = "";
+            resetHidFrame();
             state.camera = state.camera || new Html5Qrcode("reader");
             elements.cameraPanel.classList.add("active");
             elements.cameraButton.textContent = "⏹ 关闭摄像头";
@@ -918,12 +856,25 @@
                 elements.tabAuto.parentElement.style.gridTemplateColumns = "1fr";
             }
 
-            document.addEventListener("keydown", handleHidKeydown, true);
+            elements.hidCapture.addEventListener("keydown", handleHidKeydown);
             elements.hidCapture.addEventListener("input", scheduleHidInput);
+            elements.hidCapture.addEventListener("beforeinput", event => {
+                if (event.inputType !== "insertLineBreak") return;
+                event.preventDefault();
+                if (state.composing || event.isComposing) {
+                    state.hidPendingTerminator = true;
+                } else {
+                    setTimeout(flushHidFrame, 0);
+                }
+            });
             elements.hidCapture.addEventListener("compositionstart", () => { state.composing = true; });
             elements.hidCapture.addEventListener("compositionend", () => {
                 state.composing = false;
                 scheduleHidInput();
+                if (state.hidPendingTerminator) {
+                    state.hidPendingTerminator = false;
+                    setTimeout(flushHidFrame, 0);
+                }
             });
             elements.hidCapture.addEventListener("blur", armHidCapture);
 
@@ -939,7 +890,7 @@
             });
             elements.retryButton.addEventListener("click", async () => {
                 resetHidFrame();
-                elements.hidPreview.textContent = "等待扫码…";
+                elements.hidPreview.textContent = "输入框已就绪";
                 armHidCapture();
                 if (!state.db) {
                     showError("本地待发送队列尚未就绪");
