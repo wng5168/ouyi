@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI 仓储扫码终端</title>
+    <link rel="icon" href="data:,">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -152,7 +153,8 @@
         const CLIENT_ID_KEY = "ai_scanner_client_id_v1";
         const SEQUENCE_KEY = "ai_scanner_local_sequence_v1";
         const API_TIMEOUT_MS = 10000;
-        const HID_IDLE_FLUSH_MS = 900;
+        const HID_FRAME_TIMEOUT_MS = 1800;
+        const HID_MIN_FRAME_LENGTH = 3;
         const HID_PHYSICAL_BUFFER_MAX = 256;
         const CAMERA_DEBOUNCE_MS = 1400;
         const CAMERA_DECODER_URL = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
@@ -212,6 +214,7 @@
             hidPhysicalActive: false,
             hidPhysicalBuffer: "",
             hidPhysicalOverflow: false,
+            hidPhysicalIncomplete: false,
             composing: false,
             legacyMode: entryMode !== "terminal",
             cameraDecoderPromise: null,
@@ -525,8 +528,9 @@
                     } catch (error) {
                         if (error.status === 422) {
                             await deletePending(envelope.event_id);
-                            showError(error);
-                            setConnection("error", "扫码内容被拒绝");
+                            showError(`${error.message || "扫码内容无法识别"}；本次未计数，请重新完整扫描`);
+                            elements.hidPreview.textContent = "等待扫码…";
+                            setConnection("online", "扫码服务已连接");
                             continue;
                         }
                         if (error.status === 409) {
@@ -640,26 +644,6 @@
             }
         }
 
-        function flushHidInput() {
-            clearTimeout(state.hidTimer);
-            const value = elements.hidCapture.value;
-            elements.hidCapture.value = "";
-            if (normalizeScanValue(value)) handleScan(value, "hid");
-        }
-
-        function scheduleHidFlush() {
-            if (state.cameraActive || state.hidPhysicalActive) {
-                elements.hidCapture.value = "";
-                return;
-            }
-            clearTimeout(state.hidTimer);
-            const normalized = normalizeScanValue(elements.hidCapture.value);
-            elements.hidPreview.textContent = normalized || "等待扫码…";
-            if (!state.composing && normalized.length >= 6) {
-                state.hidTimer = setTimeout(flushHidInput, HID_IDLE_FLUSH_MS);
-            }
-        }
-
         function physicalHidCharacter(event) {
             const code = String(event.code || "");
             if (/^Key[A-Z]$/.test(code)) return code.slice(3);
@@ -675,57 +659,128 @@
             state.hidPhysicalActive = false;
             state.hidPhysicalBuffer = "";
             state.hidPhysicalOverflow = false;
+            state.hidPhysicalIncomplete = false;
         }
 
-        function flushPhysicalHidInput() {
+        function resetHidFrame() {
             clearTimeout(state.hidTimer);
-            const value = state.hidPhysicalBuffer;
-            const overflow = state.hidPhysicalOverflow;
+            state.hidTimer = null;
             clearPhysicalHidState();
             elements.hidCapture.value = "";
-            if (overflow) {
-                showError(`扫码内容超过 ${HID_PHYSICAL_BUFFER_MAX} 个字符，已整条丢弃`);
-                elements.hidPreview.textContent = "等待扫码…";
-                return;
-            }
-            if (normalizeScanValue(value)) handleScan(value, "hid");
         }
 
-        function schedulePhysicalHidFlush() {
+        function selectHidFrame() {
+            const nativeValue = String(elements.hidCapture.value || "");
+            const physicalValue = String(state.hidPhysicalBuffer || "");
+            const nativeNormalized = normalizeScanValue(nativeValue);
+            const physicalNormalized = normalizeScanValue(physicalValue);
+            const physicalUsable = Boolean(
+                state.hidPhysicalActive
+                && !state.hidPhysicalIncomplete
+                && physicalNormalized
+            );
+            if (physicalUsable && physicalNormalized.length >= nativeNormalized.length) {
+                return { raw: physicalValue, normalized: physicalNormalized };
+            }
+            if (nativeNormalized) {
+                return { raw: nativeValue, normalized: nativeNormalized };
+            }
+            return { raw: "", normalized: "" };
+        }
+
+        function previewHidFrame() {
+            const candidate = selectHidFrame();
+            elements.hidPreview.textContent = candidate.normalized || "等待扫码…";
+        }
+
+        function expireHidFrame() {
+            const candidate = selectHidFrame();
+            const hadInput = Boolean(
+                candidate.normalized
+                || state.hidPhysicalBuffer
+                || elements.hidCapture.value
+            );
+            resetHidFrame();
+            elements.hidPreview.textContent = "等待扫码…";
+            if (hadInput) {
+                showError("未收到扫码枪结束符，本次未发送；请设置 Enter/CR 后重新扫描");
+            }
+            armHidCapture();
+        }
+
+        function scheduleHidFrameTimeout() {
             clearTimeout(state.hidTimer);
-            state.hidTimer = setTimeout(flushPhysicalHidInput, HID_IDLE_FLUSH_MS);
+            previewHidFrame();
+            state.hidTimer = setTimeout(expireHidFrame, HID_FRAME_TIMEOUT_MS);
+        }
+
+        function flushHidFrame() {
+            const candidate = selectHidFrame();
+            const overflow = state.hidPhysicalOverflow;
+            const ambiguous = state.hidPhysicalIncomplete && !candidate.normalized;
+            resetHidFrame();
+            if (overflow) {
+                showError(`扫码内容超过 ${HID_PHYSICAL_BUFFER_MAX} 个字符，本次未发送`);
+                elements.hidPreview.textContent = "等待扫码…";
+                armHidCapture();
+                return;
+            }
+            if (ambiguous || (
+                candidate.normalized
+                && candidate.normalized.length < HID_MIN_FRAME_LENGTH
+            )) {
+                showError("扫码数据不完整，本次未发送；请重新扫描完整条码");
+                elements.hidPreview.textContent = "等待扫码…";
+                armHidCapture();
+                return;
+            }
+            if (candidate.normalized) handleScan(candidate.raw, "hid");
+            else armHidCapture();
+        }
+
+        function scheduleHidInput() {
+            if (state.cameraActive) return;
+            scheduleHidFrameTimeout();
         }
 
         function handleHidKeydown(event) {
             if (state.cameraActive) return;
-            const terminator = event.code === "Enter" || event.code === "NumpadEnter" || event.code === "Tab";
+            const code = String(event.code || "");
+            const key = String(event.key || "");
+            const terminator = (
+                code === "Enter"
+                || code === "NumpadEnter"
+                || code === "Tab"
+                || key === "Enter"
+                || key === "Tab"
+                || event.keyCode === 13
+                || event.keyCode === 9
+            );
             if (terminator) {
                 event.preventDefault();
-                if (state.hidPhysicalActive) flushPhysicalHidInput();
-                else flushHidInput();
+                flushHidFrame();
                 return;
             }
-            if (state.composing || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
+            if (event.ctrlKey || event.altKey || event.metaKey) return;
             const character = physicalHidCharacter(event);
-            if (!character) return;
+            const printableFallback = key.length === 1;
+            if (!character && !printableFallback) return;
 
-            event.preventDefault();
             if (!state.hidPhysicalActive) {
                 clearTimeout(state.hidTimer);
-                elements.hidCapture.value = "";
                 state.hidPhysicalActive = true;
             }
+            if (!character) state.hidPhysicalIncomplete = true;
             if (!state.hidPhysicalOverflow) {
                 if (state.hidPhysicalBuffer.length >= HID_PHYSICAL_BUFFER_MAX) {
                     state.hidPhysicalBuffer = "";
                     state.hidPhysicalOverflow = true;
                     elements.hidPreview.textContent = "扫码内容过长，等待结束符后丢弃…";
-                } else {
+                } else if (character) {
                     state.hidPhysicalBuffer += character;
-                    elements.hidPreview.textContent = state.hidPhysicalBuffer;
                 }
             }
-            schedulePhysicalHidFlush();
+            scheduleHidFrameTimeout();
         }
 
         function armHidCapture() {
@@ -863,12 +918,12 @@
                 elements.tabAuto.parentElement.style.gridTemplateColumns = "1fr";
             }
 
-            elements.hidCapture.addEventListener("keydown", handleHidKeydown);
-            elements.hidCapture.addEventListener("input", scheduleHidFlush);
+            document.addEventListener("keydown", handleHidKeydown, true);
+            elements.hidCapture.addEventListener("input", scheduleHidInput);
             elements.hidCapture.addEventListener("compositionstart", () => { state.composing = true; });
             elements.hidCapture.addEventListener("compositionend", () => {
                 state.composing = false;
-                scheduleHidFlush();
+                scheduleHidInput();
             });
             elements.hidCapture.addEventListener("blur", armHidCapture);
 
@@ -882,9 +937,25 @@
                     else await startCamera();
                 } catch (error) { showError(error); }
             });
-            elements.retryButton.addEventListener("click", () => processQueue());
+            elements.retryButton.addEventListener("click", async () => {
+                resetHidFrame();
+                elements.hidPreview.textContent = "等待扫码…";
+                armHidCapture();
+                if (!state.db) {
+                    showError("本地待发送队列尚未就绪");
+                    return;
+                }
+                const pending = await getPending();
+                if (!pending.some(isCurrentQueueOwner)) {
+                    showResult("当前没有待发送事件，请重新完整扫描", true);
+                    return;
+                }
+                await processQueue();
+            });
             elements.closeButton.addEventListener("click", () => tg.close());
             window.addEventListener("online", () => processQueue());
+            window.addEventListener("focus", armHidCapture);
+            document.addEventListener("pointerup", armHidCapture);
             document.addEventListener("visibilitychange", () => {
                 if (!document.hidden) {
                     armHidCapture();
