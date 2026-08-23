@@ -86,6 +86,21 @@
             box-shadow: 0 0 0 3px rgba(22, 136, 74, 0.14);
             outline: none;
         }
+        .quantity-tools[hidden] { display: none; }
+        .quantity-title { font-size: 18px; font-weight: 800; }
+        #quantity-target { margin-top: 7px; color: var(--hint); overflow-wrap: anywhere; }
+        .quantity-entry { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+        #quantity-input {
+            min-width: 0;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 18px;
+        }
+        #quantity-input:focus { border-color: var(--accent); outline: none; }
+        .quantity-help { margin-top: 8px; color: var(--hint); font-size: 14px; }
         #camera-panel { display: none; padding: 0; overflow: hidden; }
         #camera-panel.active { display: block; }
         #reader { width: 100%; min-height: 300px; background: #000; }
@@ -99,6 +114,7 @@
             h1 { font-size: 23px; }
             .app { padding-left: 10px; padding-right: 10px; }
             .actions { grid-template-columns: 1fr; }
+            .quantity-entry { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -128,6 +144,17 @@
                    virtualkeyboardpolicy="manual" autofocus placeholder="等待扫码…"
                    aria-label="蓝牙扫码枪输入">
             <div id="hid-preview">输入框已就绪</div>
+            <div id="quantity-panel" class="quantity-tools" hidden>
+                <div class="quantity-title">修改刚扫商品数量</div>
+                <div id="quantity-target">请先扫描商品条码</div>
+                <div class="quantity-entry">
+                    <input id="quantity-input" type="text" inputmode="text" autocomplete="off"
+                           autocorrect="off" spellcheck="false" placeholder="50包 / 实际11件"
+                           aria-label="商品实际数量">
+                    <button id="quantity-confirm-btn" class="action-btn" type="button">确认数量</button>
+                </div>
+                <div class="quantity-help">整包输入“50包”；散装少件输入“实际11件”。</div>
+            </div>
         </section>
 
         <section id="camera-panel" class="card">
@@ -158,6 +185,7 @@
         const SESSION_PATH = "/api/v1/scanner/web/session";
         const SESSION_STATE_PATH = "/api/v1/scanner/session";
         const DEFAULT_DISPATCH_PATH = "/api/v1/scanner/dispatch";
+        const QUANTITY_PATH = "/api/v1/scanner/quantity";
         const DB_NAME = "ai-warehouse-scanner";
         const DB_VERSION = 1;
         const STORE_PENDING = "pending-events";
@@ -184,6 +212,10 @@
             lastResult: document.getElementById("last-result"),
             tabAuto: document.getElementById("tab-auto"),
             tabMove: document.getElementById("tab-move"),
+            quantityPanel: document.getElementById("quantity-panel"),
+            quantityTarget: document.getElementById("quantity-target"),
+            quantityInput: document.getElementById("quantity-input"),
+            quantityConfirmButton: document.getElementById("quantity-confirm-btn"),
         };
 
         function resolveEntryMode() {
@@ -224,6 +256,8 @@
             composing: false,
             legacyMode: entryMode !== "terminal",
             cameraDecoderPromise: null,
+            lastProduct: null,
+            quantitySubmitting: false,
         };
 
         function resolveApiBase() {
@@ -306,6 +340,23 @@
         }
 
         function requestPayload(envelope) {
+            if (envelope.kind === "quantity_override") {
+                return {
+                    event_id: envelope.event_id,
+                    order_id: envelope.order_id,
+                    revision: envelope.revision,
+                    session_started_at: envelope.session_started_at,
+                    barcode: envelope.barcode,
+                    target_scan_event_id: envelope.target_scan_event_id,
+                    expected_actual_quantity: envelope.expected_actual_quantity,
+                    quantity: envelope.quantity,
+                    unit: envelope.unit,
+                    transport: envelope.transport,
+                    adjusted_at: envelope.adjusted_at,
+                    local_sequence: envelope.local_sequence,
+                    schema_version: envelope.schema_version,
+                };
+            }
             return {
                 event_id: envelope.event_id,
                 order_id: envelope.order_id,
@@ -334,6 +385,39 @@
             showResult(`⚠️ ${message}`, true);
         }
 
+        function setLastProduct(target = null) {
+            const normalizedBarcode = normalizeScanValue(target?.barcode || "");
+            const revision = Number(target?.revision || 0);
+            const orderId = String(target?.orderId || "").trim();
+            const sessionStartedAt = String(target?.sessionStartedAt || "").trim();
+            const targetScanEventId = String(target?.targetScanEventId || "").trim();
+            const expectedActualQuantity = Number(target?.expectedActualQuantity);
+            if (
+                !orderId
+                || revision <= 0
+                || !sessionStartedAt
+                || !targetScanEventId
+                || !Number.isInteger(expectedActualQuantity)
+                || expectedActualQuantity < 0
+                || !/^[0-9]{6,18}$/.test(normalizedBarcode)
+            ) {
+                state.lastProduct = null;
+                elements.quantityPanel.hidden = true;
+                elements.quantityTarget.textContent = "请先扫描商品条码";
+                return;
+            }
+            state.lastProduct = {
+                orderId,
+                revision,
+                sessionStartedAt,
+                barcode: normalizedBarcode,
+                targetScanEventId,
+                expectedActualQuantity,
+            };
+            elements.quantityTarget.textContent = `当前商品：${normalizedBarcode}`;
+            elements.quantityPanel.hidden = state.legacyMode;
+        }
+
         function formatSession(payload) {
             if (!payload || payload.status === "idle") return "当前没有活动出库订单；可扫描订单、商品或库位。";
             const orderId = payload.order_id || "未标注";
@@ -355,10 +439,45 @@
             ) {
                 elements.sessionText.textContent = formatSession(payload);
             }
+            if (payload.status === "idle") {
+                setLastProduct();
+            } else if (payload.status === "accepted" && envelope?.kind !== "quantity_override") {
+                setLastProduct({
+                    orderId: payload.order_id,
+                    revision: payload.revision,
+                    sessionStartedAt: payload.session_started_at,
+                    barcode: payload.barcode,
+                    targetScanEventId: payload.event_id === envelope.event_id
+                        ? envelope.event_id
+                        : "",
+                    expectedActualQuantity: payload.actual_quantity,
+                });
+            } else if (payload.status === "adjusted" && envelope?.kind === "quantity_override") {
+                setLastProduct({
+                    orderId: payload.order_id,
+                    revision: payload.revision,
+                    sessionStartedAt: payload.session_started_at,
+                    barcode: payload.barcode,
+                    targetScanEventId: envelope.target_scan_event_id,
+                    expectedActualQuantity: payload.actual_quantity,
+                });
+            } else if (
+                payload.status === "duplicate"
+                || payload.status === "order_started"
+                || payload.status === "query_result"
+            ) {
+                // 重放 ACK 与订单摘要里的 last_barcode 都是全局状态，
+                // 多终端并发时不能据此认定“本终端刚扫商品”。
+                setLastProduct();
+            }
             if (payload.status === "query_result") {
                 showResult(payload.message || `已查询 ${payload.reference || envelope.barcode}`, true);
             } else if (payload.status === "order_started") {
                 showResult(payload.message || `订单 ${payload.order_id} 已载入`, true);
+            } else if (payload.status === "adjusted") {
+                showResult(payload.message || `${payload.barcode}：数量已修改`, true);
+            } else if (payload.status === "duplicate" && envelope?.kind === "quantity_override") {
+                showResult(payload.message || `${payload.barcode}：数量调整已处理`, true);
             } else if (payload.status === "accepted" || payload.status === "duplicate") {
                 const label = payload.status === "duplicate" ? "重复事件已确认，未重复计数" : "已入账";
                 const sessionSummary = duplicateHasCurrentSnapshot
@@ -433,6 +552,17 @@
                 ? `本终端待发送：${current} 条；其他终端保留：${retained} 条`
                 : `待发送：${current} 条`;
             elements.queueText.classList.toggle("has-items", current > 0);
+            const quantityPending = pending.some(
+                envelope => isCurrentQueueOwner(envelope)
+                    && (
+                        envelope.kind === "quantity_override"
+                        || envelope.kind === undefined
+                        || envelope.kind === "scan"
+                    )
+            );
+            setQuantityControlsDisabled(
+                quantityPending || state.cameraActive || state.quantitySubmitting
+            );
         }
 
         async function fetchJson(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
@@ -491,12 +621,17 @@
             await exchangeWebSession();
             const payload = await fetchJson(`${apiBase}${SESSION_STATE_PATH}`, { headers: authorizedHeaders() });
             elements.sessionText.textContent = formatSession(payload);
+            // 会话摘要中的 last_barcode 可能来自另一台终端；刷新后要求本机重扫。
+            setLastProduct();
         }
 
         async function sendEnvelope(envelope, refreshed = false) {
             await exchangeWebSession();
             try {
-                return await fetchJson(`${apiBase}${state.dispatchPath}`, {
+                const path = envelope.kind === "quantity_override"
+                    ? QUANTITY_PATH
+                    : state.dispatchPath;
+                return await fetchJson(`${apiBase}${path}`, {
                     method: "POST",
                     headers: authorizedHeaders(),
                     body: JSON.stringify(requestPayload(envelope)),
@@ -510,6 +645,71 @@
                 }
                 throw error;
             }
+        }
+
+        function setQuantityControlsDisabled(disabled) {
+            elements.quantityInput.disabled = disabled;
+            elements.quantityConfirmButton.disabled = disabled;
+        }
+
+        async function submitQuantityAdjustment() {
+            const target = state.lastProduct;
+            if (!target) {
+                showError("请先扫描要修改的商品条码");
+                armHidCapture();
+                return;
+            }
+            const command = String(elements.quantityInput.value || "")
+                .normalize("NFKC")
+                .replace(/\s+/g, "");
+            const packageMatch = command.match(/^([1-9]\d{0,6})(?:包|箱)$/);
+            const pieceMatch = command.match(/^实际([1-9]\d{0,6})件$/);
+            const match = packageMatch || pieceMatch;
+            const quantity = match ? Number.parseInt(match[1], 10) : 0;
+            const unit = packageMatch ? "package" : "piece";
+            if (!match || quantity > 1000000) {
+                showError("请输入“50包”或“实际11件”，数量范围 1 至 1000000");
+                elements.quantityInput.focus();
+                return;
+            }
+            const sequence = nextSequence();
+            const envelope = {
+                kind: "quantity_override",
+                event_id: `${state.clientId}:qty:${String(sequence).padStart(8, "0")}:${randomAscii(4)}`,
+                device_id: state.deviceId,
+                api_base: apiBase,
+                order_id: target.orderId,
+                revision: target.revision,
+                session_started_at: target.sessionStartedAt,
+                barcode: target.barcode,
+                target_scan_event_id: target.targetScanEventId,
+                expected_actual_quantity: target.expectedActualQuantity,
+                quantity,
+                unit,
+                transport: "telegram_web",
+                raw_value: unit === "package"
+                    ? `${target.barcode}改为${quantity}包`
+                    : `${target.barcode}实际${quantity}件`,
+                adjusted_at: new Date().toISOString(),
+                local_sequence: sequence,
+                schema_version: "1.0",
+            };
+            state.quantitySubmitting = true;
+            setQuantityControlsDisabled(true);
+            try {
+                await putPending(envelope);
+                await updateQueueCount();
+                elements.quantityInput.value = "";
+                playBeep();
+                showResult(`${target.barcode}\n${command} 已进入待发队列`, true);
+            } catch (error) {
+                showError(`数量调整未能保存：${error.message || error}`);
+            } finally {
+                state.quantitySubmitting = false;
+                await updateQueueCount();
+                armHidCapture();
+            }
+            processQueue();
         }
 
         async function processQueue() {
@@ -526,7 +726,12 @@
                         break;
                     }
                     try {
-                        setConnection("", "正在发送扫码事件…");
+                        setConnection(
+                            "",
+                            envelope.kind === "quantity_override"
+                                ? "正在发送数量调整…"
+                                : "正在发送扫码事件…"
+                        );
                         const payload = await sendEnvelope(envelope);
                         await deletePending(envelope.event_id);
                         renderAck(payload, envelope);
@@ -535,6 +740,11 @@
                         if (error.status === 422) {
                             await deletePending(envelope.event_id);
                             const detail = String(error.message || "扫码内容无法识别");
+                            if (envelope.kind === "quantity_override") {
+                                showError(`${detail}；数量未修改，可返回 Telegram 发送“${envelope.raw_value}”`);
+                                setConnection("online", "扫码服务已连接");
+                                continue;
+                            }
                             const suffix = detail.includes("本次未计数")
                                 ? ""
                                 : "；本次未计数";
@@ -544,6 +754,14 @@
                             continue;
                         }
                         if (error.status === 409) {
+                            if (envelope.kind === "quantity_override") {
+                                await deletePending(envelope.event_id);
+                                showError(`${error.message || error}；陈旧数量调整已取消`);
+                                setLastProduct();
+                                try { await loadServerSession(); } catch (_) {}
+                                setConnection("online", "扫码服务已连接");
+                                continue;
+                            }
                             showError(error);
                             setConnection("error", "需要先处理当前业务状态");
                         } else if (error.status === 401 || error.status === 403) {
@@ -585,6 +803,7 @@
                 tg.close();
                 return;
             }
+            setLastProduct();
             await putPending(envelope);
             await updateQueueCount();
             playBeep();
@@ -724,9 +943,18 @@
         }
 
         function armHidCapture() {
-            if (state.cameraActive) return;
+            if (
+                state.cameraActive
+                || state.quantitySubmitting
+                || document.activeElement === elements.quantityInput
+            ) return;
             setTimeout(() => {
-                if (state.cameraActive || document.hidden) return;
+                if (
+                    state.cameraActive
+                    || state.quantitySubmitting
+                    || document.hidden
+                    || document.activeElement === elements.quantityInput
+                ) return;
                 try { elements.hidCapture.focus({ preventScroll: true }); }
                 catch (_) { elements.hidCapture.focus(); }
             }, 80);
@@ -802,6 +1030,7 @@
             elements.cameraPanel.classList.add("active");
             elements.cameraButton.textContent = "⏹ 关闭摄像头";
             state.cameraActive = true;
+            setQuantityControlsDisabled(true);
             elements.hidCapture.blur();
             try {
                 await state.camera.start(
@@ -812,6 +1041,7 @@
                 );
             } catch (_) {
                 state.cameraActive = false;
+                await updateQueueCount();
                 elements.cameraPanel.classList.remove("active");
                 elements.cameraButton.textContent = "📷 启用摄像头备用";
                 armHidCapture();
@@ -828,6 +1058,7 @@
             } catch (_) {}
             elements.cameraPanel.classList.remove("active");
             elements.cameraButton.textContent = "📷 启用摄像头备用";
+            await updateQueueCount();
             armHidCapture();
         }
 
@@ -888,6 +1119,8 @@
                     else await startCamera();
                 } catch (error) { showError(error); }
             });
+            elements.quantityInput.addEventListener("focus", resetHidFrame);
+            elements.quantityConfirmButton.addEventListener("click", submitQuantityAdjustment);
             elements.retryButton.addEventListener("click", async () => {
                 resetHidFrame();
                 elements.hidPreview.textContent = "输入框已就绪";
