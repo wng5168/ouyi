@@ -317,6 +317,14 @@
                 .toUpperCase();
         }
 
+        function displayScanValue(value) {
+            const normalized = normalizeScanValue(value);
+            if (/^[A-Z0-9]+(?:[+._'-][A-Z0-9]+)+$/.test(normalized)) {
+                return normalized.replace(/'/g, "-");
+            }
+            return normalized;
+        }
+
         function buildEnvelope(rawValue, transport) {
             const normalized = normalizeScanValue(rawValue);
             if (!normalized || normalized.length > 256) throw new Error("扫码内容为空或长度异常");
@@ -471,7 +479,7 @@
                 setLastProduct();
             }
             if (payload.status === "query_result") {
-                showResult(payload.message || `已查询 ${payload.reference || envelope.barcode}`, true);
+                showResult(payload.message || `已查询 ${payload.reference || displayScanValue(envelope.barcode)}`, true);
             } else if (payload.status === "order_started") {
                 showResult(payload.message || `订单 ${payload.order_id} 已载入`, true);
             } else if (payload.status === "adjusted") {
@@ -483,9 +491,9 @@
                 const sessionSummary = duplicateHasCurrentSnapshot
                     ? `\n${formatSession(payload)}`
                     : "";
-                showResult(`${envelope.barcode}：${label}${sessionSummary}`, true);
+                showResult(`${displayScanValue(envelope.barcode)}：${label}${sessionSummary}`, true);
             } else {
-                showResult(payload.message || `${envelope.barcode}：服务器已确认`, true);
+                showResult(payload.message || `${displayScanValue(envelope.barcode)}：服务器已确认`, true);
             }
         }
 
@@ -749,7 +757,7 @@
                                 ? ""
                                 : "；本次未计数";
                             showError(`${detail}${suffix}，请重新完整扫描`);
-                            elements.hidPreview.textContent = `未计数：${envelope.barcode}（长度 ${envelope.barcode.length}）`;
+                            elements.hidPreview.textContent = `未计数：${displayScanValue(envelope.barcode)}（长度 ${envelope.barcode.length}）`;
                             setConnection("online", "扫码服务已连接");
                             continue;
                         }
@@ -807,7 +815,7 @@
             await putPending(envelope);
             await updateQueueCount();
             playBeep();
-            showResult(`${envelope.barcode}\n已进入待发队列`, true);
+            showResult(`${displayScanValue(envelope.barcode)}\n已进入待发队列`, true);
             processQueue();
         }
 
@@ -820,8 +828,8 @@
             if (state.moveStep === 1) {
                 state.moveProduct = normalized;
                 state.moveStep = 2;
-                elements.hidHelp.innerHTML = `已锁定产品: <span class="move-step">${escapeHtml(normalized)}</span><br>第二步：扫描新库位码`;
-                showResult(`产品 ${normalized} 已锁定`, true);
+                elements.hidHelp.innerHTML = `已锁定产品: <span class="move-step">${escapeHtml(displayScanValue(normalized))}</span><br>第二步：扫描新库位码`;
+                showResult(`产品 ${displayScanValue(normalized)} 已锁定`, true);
                 playBeep();
                 return;
             }
@@ -838,7 +846,7 @@
         async function handleScan(rawValue, transport) {
             const normalized = normalizeScanValue(rawValue);
             if (!normalized) return;
-            elements.hidPreview.textContent = normalized;
+            elements.hidPreview.textContent = displayScanValue(normalized);
             try {
                 if (state.mode === "MOVE") await submitMoveScan(rawValue);
                 else await submitAutomaticScan(rawValue, transport);
