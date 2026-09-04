@@ -34,9 +34,9 @@
             width: min(760px, 100%);
             min-height: 100vh;
             margin: 0 auto;
-            padding: 16px 14px 28px;
+            padding: 12px 12px 24px;
         }
-        h1 { margin: 3px 0 14px; font-size: 26px; }
+        h1 { margin: 2px 0 10px; font-size: 24px; }
         .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
         .tab-btn, .action-btn {
             border: 1px solid var(--border);
@@ -52,8 +52,8 @@
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 15px;
-            padding: 15px;
-            margin-bottom: 12px;
+            padding: 13px;
+            margin-bottom: 10px;
             box-shadow: 0 3px 14px rgba(20, 45, 65, 0.06);
         }
         .status-row { display: flex; align-items: center; gap: 9px; }
@@ -61,11 +61,25 @@
         .dot.online { background: var(--ok); }
         .dot.error { background: var(--danger); }
         #connection-text { font-weight: 700; }
-        #session-text, #last-result { margin-top: 9px; color: var(--hint); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+        #session-text, #last-result { margin-top: 7px; color: var(--hint); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
         #last-result.strong { color: var(--text); }
+        #last-result { border-top: 1px solid var(--border); padding-top: 8px; font-size: 14px; }
+        .attention-panel { margin-top: 9px; }
+        .attention-panel[hidden] { display: none; }
+        .attention-heading { font-weight: 800; color: var(--danger); margin-bottom: 7px; }
+        .attention-list { display: grid; gap: 7px; max-height: 190px; overflow-y: auto; }
+        .attention-item {
+            border-left: 4px solid var(--warning);
+            border-radius: 9px;
+            padding: 8px 10px;
+            background: rgba(188, 107, 0, 0.08);
+        }
+        .attention-item.danger { border-left-color: var(--danger); background: rgba(184, 50, 50, 0.08); }
+        .attention-item-title { font-weight: 800; overflow-wrap: anywhere; }
+        .attention-item-meta { color: var(--hint); font-size: 13px; margin-top: 3px; }
         .hid-card { border: 2px solid rgba(22, 136, 74, 0.35); }
-        .hid-title { color: var(--ok); font-size: 20px; font-weight: 800; }
-        .hid-help { color: var(--hint); margin-top: 7px; line-height: 1.45; }
+        .hid-title { color: var(--ok); font-size: 18px; font-weight: 800; }
+        .hid-help { color: var(--hint); margin-top: 5px; line-height: 1.35; font-size: 13px; }
         #hid-preview { min-height: 24px; margin-top: 10px; font-family: Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
         #hid-capture {
             display: block;
@@ -109,9 +123,49 @@
         .action-btn.danger { color: var(--danger); }
         .queue { margin-top: 10px; font-size: 14px; color: var(--hint); }
         .queue.has-items { color: var(--warning); font-weight: 700; }
+        .pending-card { border: 2px solid rgba(188, 107, 0, 0.34); }
+        .pending-card[hidden] { display: none; }
+        .pending-title { color: var(--warning); font-size: 18px; font-weight: 800; }
+        #pending-detail { margin-top: 8px; color: var(--text); line-height: 1.4; }
+        .pending-item-main { font-size: 19px; font-weight: 800; overflow-wrap: anywhere; }
+        .pending-description { margin-top: 4px; font-size: 14px; }
+        .pending-reason { margin-top: 7px; padding: 7px 9px; border-radius: 8px; background: rgba(188, 107, 0, 0.09); font-size: 13px; color: var(--warning); }
+        .field-label { display: block; margin-top: 9px; color: var(--hint); font-size: 13px; font-weight: 700; }
+        #pending-select, #pending-allocations {
+            width: 100%;
+            margin-top: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 16px;
+        }
+        #pending-allocations { min-height: 82px; resize: vertical; font-family: Consolas, monospace; }
+        .pending-entry { display: grid; grid-template-columns: minmax(0, 2fr) minmax(82px, 1fr); gap: 8px; }
+        #pending-barcode, #pending-quantity {
+            width: 100%;
+            min-width: 0;
+            margin-top: 5px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 11px 10px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 16px;
+        }
+        #pending-barcode:focus, #pending-quantity:focus { border-color: var(--warning); outline: none; }
+        #pending-add-btn { width: 100%; margin-top: 8px; }
+        #pending-allocation-list { display: grid; gap: 5px; margin-top: 8px; }
+        .allocation-item { display: flex; justify-content: space-between; gap: 8px; border-radius: 8px; padding: 7px 9px; background: var(--bg); font-family: Consolas, monospace; font-size: 14px; }
+        .allocation-remove { border: 0; background: transparent; color: var(--danger); font-weight: 800; cursor: pointer; }
+        .pending-advanced { margin-top: 8px; color: var(--hint); font-size: 13px; }
+        .pending-advanced summary { cursor: pointer; }
+        #pending-confirm-btn { width: 100%; margin-top: 9px; background: var(--warning); color: #fff; border-color: var(--warning); }
+        .pending-help { margin-top: 8px; color: var(--hint); font-size: 14px; line-height: 1.45; }
         .move-step { color: var(--accent); font-weight: 800; }
         @media (max-width: 420px) {
-            h1 { font-size: 23px; }
+            h1 { font-size: 22px; }
             .app { padding-left: 10px; padding-right: 10px; }
             .actions { grid-template-columns: 1fr; }
             .quantity-entry { grid-template-columns: 1fr; }
@@ -120,20 +174,51 @@
 </head>
 <body>
     <main class="app">
-        <h1>AI 仓储连续扫码</h1>
+        <h1>出库扫码工作台</h1>
 
         <div class="tabs">
             <button id="tab-auto" class="tab-btn active" type="button">🔎 智能扫码</button>
             <button id="tab-move" class="tab-btn" type="button">📍 显式移库</button>
         </div>
 
-        <section class="card">
+        <section class="card status-card">
             <div class="status-row">
                 <span id="connection-dot" class="dot"></span>
                 <span id="connection-text">正在建立安全会话…</span>
             </div>
             <div id="session-text">正在读取当前业务状态</div>
             <div id="queue-text" class="queue">待发送：0 条</div>
+            <div id="attention-panel" class="attention-panel" hidden>
+                <div id="attention-heading" class="attention-heading">当前需要处理</div>
+                <div id="attention-list" class="attention-list"></div>
+            </div>
+            <div id="last-result">尚未扫码</div>
+        </section>
+
+        <section id="pending-panel" class="card pending-card" hidden>
+            <div id="pending-title" class="pending-title">⚠️ 先处理待确认商品</div>
+            <div id="pending-detail"></div>
+            <label class="field-label" for="pending-select">待确认订单行</label>
+            <select id="pending-select" aria-label="选择待确认商品"></select>
+            <div class="pending-entry">
+                <label class="field-label" for="pending-barcode">正确商品条码
+                    <input id="pending-barcode" type="text" inputmode="text" autocomplete="off"
+                           autocorrect="off" spellcheck="false" placeholder="点击这里后扫描条码">
+                </label>
+                <label class="field-label" for="pending-quantity">分配件数
+                    <input id="pending-quantity" type="number" inputmode="numeric" min="1" step="1">
+                </label>
+            </div>
+            <button id="pending-add-btn" class="action-btn" type="button">＋ 加入分配清单</button>
+            <div id="pending-allocation-list"></div>
+            <details class="pending-advanced">
+                <summary>高级：一行分配多个条码</summary>
+                <textarea id="pending-allocations" inputmode="text" autocomplete="off"
+                          autocorrect="off" spellcheck="false"
+                          placeholder="商品条码=数量；多款请换行"></textarea>
+            </details>
+            <button id="pending-confirm-btn" class="action-btn" type="button">确认分配并继续扫码</button>
+            <div class="pending-help">分配总数必须等于原订单数量；提交前不会改变扫码或订单数据。</div>
         </section>
 
         <section class="card hid-card">
@@ -149,21 +234,16 @@
                 <div id="quantity-target">请先扫描商品条码</div>
                 <div class="quantity-entry">
                     <input id="quantity-input" type="text" inputmode="text" autocomplete="off"
-                           autocorrect="off" spellcheck="false" placeholder="50包 / 实际11件"
+                           autocorrect="off" spellcheck="false" placeholder="50包 / 11件"
                            aria-label="商品实际数量">
                     <button id="quantity-confirm-btn" class="action-btn" type="button">确认数量</button>
                 </div>
-                <div class="quantity-help">整包输入“50包”；散装少件输入“实际11件”。</div>
+                <div class="quantity-help">整包输入“50包”；散装少件输入“11件”。</div>
             </div>
         </section>
 
         <section id="camera-panel" class="card">
             <div id="reader"></div>
-        </section>
-
-        <section class="card">
-            <strong>最近结果</strong>
-            <div id="last-result">尚未扫码</div>
         </section>
 
         <div class="actions">
@@ -186,6 +266,7 @@
         const SESSION_STATE_PATH = "/api/v1/scanner/session";
         const DEFAULT_DISPATCH_PATH = "/api/v1/scanner/dispatch";
         const QUANTITY_PATH = "/api/v1/scanner/quantity";
+        const SESSION_ACTION_PATH = "/api/v1/scanner/session/action";
         const DB_NAME = "ai-warehouse-scanner";
         const DB_VERSION = 1;
         const STORE_PENDING = "pending-events";
@@ -216,6 +297,19 @@
             quantityTarget: document.getElementById("quantity-target"),
             quantityInput: document.getElementById("quantity-input"),
             quantityConfirmButton: document.getElementById("quantity-confirm-btn"),
+            pendingPanel: document.getElementById("pending-panel"),
+            pendingDetail: document.getElementById("pending-detail"),
+            pendingTitle: document.getElementById("pending-title"),
+            pendingSelect: document.getElementById("pending-select"),
+            pendingBarcode: document.getElementById("pending-barcode"),
+            pendingQuantity: document.getElementById("pending-quantity"),
+            pendingAddButton: document.getElementById("pending-add-btn"),
+            pendingAllocations: document.getElementById("pending-allocations"),
+            pendingAllocationList: document.getElementById("pending-allocation-list"),
+            pendingConfirmButton: document.getElementById("pending-confirm-btn"),
+            attentionPanel: document.getElementById("attention-panel"),
+            attentionHeading: document.getElementById("attention-heading"),
+            attentionList: document.getElementById("attention-list"),
         };
 
         function resolveEntryMode() {
@@ -258,6 +352,10 @@
             cameraDecoderPromise: null,
             lastProduct: null,
             quantitySubmitting: false,
+            pendingSubmitting: false,
+            activeSession: null,
+            attentionItems: [],
+            attentionRefreshPromise: null,
         };
 
         function resolveApiBase() {
@@ -433,7 +531,206 @@
                 ? `${payload.scanned_total}/${payload.ordered_total} 件` : "";
             const products = Number.isFinite(payload.scanned_products) && Number.isFinite(payload.ordered_products)
                 ? `${payload.scanned_products}/${payload.ordered_products} 款` : "";
-            return `订单 ${orderId}${totals ? `\n进度 ${totals}` : ""}${products ? `；商品 ${products}` : ""}`;
+            const pending = Number.isFinite(payload.pending_products)
+                ? Number(payload.pending_products)
+                : (state.activeSession?.pending_lines?.length || 0);
+            return `订单 ${orderId}${totals ? `\n进度 ${totals}` : ""}${products ? `；商品 ${products}` : ""}${pending > 0 ? `\n待确认 ${pending} 条` : ""}`;
+        }
+
+        function renderAttention(payload) {
+            if (!payload || payload.status === "idle") {
+                state.attentionItems = [];
+            } else if (Array.isArray(payload.attention_items)) {
+                state.attentionItems = payload.attention_items;
+            } else if (
+                payload.barcode
+                && Number.isFinite(payload.expected_quantity)
+                && Number.isFinite(payload.actual_quantity)
+            ) {
+                const barcode = String(payload.barcode);
+                const retained = state.attentionItems.filter(item => item.barcode !== barcode);
+                let status = "";
+                if (Number(payload.expected_quantity) <= 0 && Number(payload.actual_quantity) > 0) {
+                    status = "unexpected";
+                } else if (Number(payload.actual_quantity) > Number(payload.expected_quantity)) {
+                    status = "over";
+                }
+                if (status) {
+                    retained.unshift({
+                        barcode,
+                        sku: "",
+                        expected_quantity: Number(payload.expected_quantity),
+                        actual_quantity: Number(payload.actual_quantity),
+                        difference_quantity: Number(payload.actual_quantity) - Number(payload.expected_quantity),
+                        status,
+                    });
+                }
+                state.attentionItems = retained;
+            }
+            const items = state.attentionItems;
+            elements.attentionPanel.hidden = items.length === 0;
+            elements.attentionList.replaceChildren();
+            if (!items.length) return;
+            const labels = {
+                unexpected: ["订单外", "danger"],
+                over: ["超配", "danger"],
+                short: ["少配", ""],
+            };
+            elements.attentionHeading.textContent = `当前需要处理 · ${items.length} 款`;
+            for (const item of items) {
+                const [label, level] = labels[item.status] || ["需核对", ""];
+                const card = document.createElement("div");
+                card.className = `attention-item${level ? ` ${level}` : ""}`;
+                const title = document.createElement("div");
+                title.className = "attention-item-title";
+                const identity = item.sku
+                    ? `${item.sku} · ${item.barcode}`
+                    : item.barcode;
+                title.textContent = `${label}｜${identity}`;
+                const meta = document.createElement("div");
+                meta.className = "attention-item-meta";
+                if (item.status === "unexpected") {
+                    meta.textContent = `订单 0 件 · 已扫 ${item.actual_quantity} 件`;
+                } else {
+                    const difference = Math.abs(Number(item.difference_quantity || 0));
+                    meta.textContent = `应配 ${item.expected_quantity} 件 · 已扫 ${item.actual_quantity} 件 · ${label} ${difference} 件`;
+                }
+                card.append(title, meta);
+                elements.attentionList.appendChild(card);
+            }
+        }
+
+        function selectedPendingLine() {
+            const pendingLines = Array.isArray(state.activeSession?.pending_lines)
+                ? state.activeSession.pending_lines
+                : [];
+            return pendingLines.find(item => item.line_id === elements.pendingSelect.value) || null;
+        }
+
+        function renderPendingDetail(line) {
+            elements.pendingDetail.replaceChildren();
+            if (!line) return;
+            const main = document.createElement("div");
+            main.className = "pending-item-main";
+            main.textContent = `${line.sku || "未标注货号"} · ${line.quantity} 件`;
+            const description = document.createElement("div");
+            description.className = "pending-description";
+            description.textContent = line.description || `PDF 第${line.source_page || "?"}页订单商品`;
+            const reason = document.createElement("div");
+            reason.className = "pending-reason";
+            reason.textContent = `不能自动确认：${line.reason || "需要操作员指定实际商品"}`;
+            elements.pendingDetail.append(main, description, reason);
+        }
+
+        function pendingAllocationEntries() {
+            try {
+                return parsePendingAllocations(elements.pendingAllocations.value);
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function writePendingAllocations(allocations) {
+            elements.pendingAllocations.value = Object.entries(allocations)
+                .map(([barcode, quantity]) => `${barcode}=${quantity}`)
+                .join("\n");
+            renderPendingAllocationList();
+        }
+
+        function renderPendingAllocationList() {
+            const allocations = pendingAllocationEntries();
+            elements.pendingAllocationList.replaceChildren();
+            for (const [barcode, quantity] of Object.entries(allocations)) {
+                const row = document.createElement("div");
+                row.className = "allocation-item";
+                const text = document.createElement("span");
+                text.textContent = `${barcode} × ${quantity} 件`;
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "allocation-remove";
+                remove.textContent = "移除";
+                remove.addEventListener("click", () => {
+                    const current = pendingAllocationEntries();
+                    delete current[barcode];
+                    writePendingAllocations(current);
+                });
+                row.append(text, remove);
+                elements.pendingAllocationList.appendChild(row);
+            }
+            const line = selectedPendingLine();
+            if (!line) return;
+            const assigned = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+            const remaining = Math.max(0, Number(line.quantity || 0) - assigned);
+            elements.pendingQuantity.value = remaining > 0 ? String(remaining) : "";
+        }
+
+        function resetPendingEditor(line) {
+            elements.pendingBarcode.value = "";
+            elements.pendingAllocations.value = "";
+            elements.pendingQuantity.value = line ? String(line.quantity || "") : "";
+            elements.pendingAllocationList.replaceChildren();
+        }
+
+        function addPendingAllocation() {
+            const line = selectedPendingLine();
+            const barcode = normalizeScanValue(elements.pendingBarcode.value);
+            const quantity = Number.parseInt(elements.pendingQuantity.value || "", 10);
+            if (!line) {
+                showError("请先选择待确认订单商品");
+                return;
+            }
+            if (!/^[0-9]{6,18}$/.test(barcode)) {
+                showError("请扫描或填写 6 至 18 位商品条码");
+                elements.pendingBarcode.focus();
+                return;
+            }
+            if (!Number.isInteger(quantity) || quantity <= 0) {
+                showError("分配件数必须是大于 0 的整数");
+                elements.pendingQuantity.focus();
+                return;
+            }
+            const allocations = pendingAllocationEntries();
+            const currentTotal = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+            if (currentTotal + quantity > Number(line.quantity || 0)) {
+                showError(`分配后超过原订单数量 ${line.quantity} 件`);
+                return;
+            }
+            allocations[barcode] = (allocations[barcode] || 0) + quantity;
+            writePendingAllocations(allocations);
+            elements.pendingBarcode.value = "";
+            elements.pendingBarcode.focus();
+        }
+
+        function renderPending(payload) {
+            if (!payload || payload.status === "idle") {
+                state.activeSession = null;
+                elements.pendingPanel.hidden = true;
+                elements.pendingSelect.replaceChildren();
+                elements.pendingAllocations.value = "";
+                return;
+            }
+            if (!Array.isArray(payload.pending_lines)) return;
+            state.activeSession = payload;
+            const pendingLines = payload.pending_lines;
+            elements.pendingPanel.hidden = pendingLines.length === 0;
+            elements.pendingTitle.textContent = `⚠️ 先处理待确认商品 · ${pendingLines.length} 条`;
+            elements.pendingSelect.replaceChildren();
+            for (const line of pendingLines) {
+                const option = document.createElement("option");
+                option.value = line.line_id;
+                option.textContent = `${line.sku || line.line_id} · ${line.quantity}件`;
+                elements.pendingSelect.appendChild(option);
+            }
+            const line = pendingLines[0];
+            renderPendingDetail(line);
+            resetPendingEditor(line);
+            elements.pendingConfirmButton.disabled = pendingLines.length === 0;
+        }
+
+        function updatePendingDetail() {
+            const line = selectedPendingLine();
+            renderPendingDetail(line);
+            resetPendingEditor(line);
         }
 
         function renderAck(payload, envelope) {
@@ -446,6 +743,10 @@
                 || (payload.order_id && duplicateHasCurrentSnapshot)
             ) {
                 elements.sessionText.textContent = formatSession(payload);
+            }
+            renderAttention(payload);
+            if (payload.status === "idle" || Array.isArray(payload.pending_lines)) {
+                renderPending(payload);
             }
             if (payload.status === "idle") {
                 setLastProduct();
@@ -494,6 +795,18 @@
                 showResult(`${displayScanValue(envelope.barcode)}：${label}${sessionSummary}`, true);
             } else {
                 showResult(payload.message || `${displayScanValue(envelope.barcode)}：服务器已确认`, true);
+            }
+            if (
+                payload.status === "accepted"
+                && (
+                    payload.warning_code
+                    || (
+                        Number(payload.ordered_total || 0) > 0
+                        && Number(payload.scanned_total || 0) >= Number(payload.ordered_total || 0)
+                    )
+                )
+            ) {
+                refreshAttentionAfterCriticalAck();
             }
         }
 
@@ -629,8 +942,94 @@
             await exchangeWebSession();
             const payload = await fetchJson(`${apiBase}${SESSION_STATE_PATH}`, { headers: authorizedHeaders() });
             elements.sessionText.textContent = formatSession(payload);
+            renderAttention(payload);
+            renderPending(payload);
             // 会话摘要中的 last_barcode 可能来自另一台终端；刷新后要求本机重扫。
             setLastProduct();
+        }
+
+        async function loadServerAttentionPreservingLocalProduct() {
+            await exchangeWebSession();
+            const payload = await fetchJson(`${apiBase}${SESSION_STATE_PATH}`, { headers: authorizedHeaders() });
+            elements.sessionText.textContent = formatSession(payload);
+            renderAttention(payload);
+            renderPending(payload);
+        }
+
+        function refreshAttentionAfterCriticalAck() {
+            if (state.attentionRefreshPromise) return;
+            state.attentionRefreshPromise = loadServerAttentionPreservingLocalProduct()
+                .catch(() => {})
+                .finally(() => { state.attentionRefreshPromise = null; });
+        }
+
+        function parsePendingAllocations(rawText) {
+            const allocations = {};
+            const lines = String(rawText || "")
+                .normalize("NFKC")
+                .split(/[\n,，;；]+/)
+                .map(item => item.trim())
+                .filter(Boolean);
+            for (const line of lines) {
+                const match = line.match(/^'?([0-9]{6,18})\s*(?:=|:|：|\*)\s*([1-9]\d{0,6})$/);
+                if (!match) throw new Error(`分配格式无效：${line}`);
+                allocations[match[1]] = (allocations[match[1]] || 0) + Number(match[2]);
+            }
+            if (!Object.keys(allocations).length) throw new Error("请填写商品条码和数量");
+            return allocations;
+        }
+
+        async function submitPendingResolution() {
+            const line = selectedPendingLine();
+            const session = state.activeSession;
+            if (!line || !session) {
+                showError("待确认商品状态已变化，请刷新订单");
+                return;
+            }
+            let allocations;
+            try {
+                allocations = parsePendingAllocations(elements.pendingAllocations.value);
+            } catch (error) {
+                showError(error);
+                elements.pendingAllocations.focus();
+                return;
+            }
+            const total = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+            if (total !== Number(line.quantity || 0)) {
+                showError(`分配合计 ${total} 件，必须等于订单数量 ${line.quantity} 件`);
+                elements.pendingAllocations.focus();
+                return;
+            }
+            state.pendingSubmitting = true;
+            elements.pendingConfirmButton.disabled = true;
+            try {
+                await exchangeWebSession();
+                const payload = await fetchJson(`${apiBase}${SESSION_ACTION_PATH}`, {
+                    method: "POST",
+                    headers: authorizedHeaders(),
+                    body: JSON.stringify({
+                        action: "resolve_pending",
+                        order_id: session.order_id,
+                        revision: session.revision,
+                        session_started_at: session.session_started_at,
+                        pending_line_id: line.line_id,
+                        allocations,
+                        schema_version: "1.0",
+                    }),
+                });
+                elements.pendingAllocations.value = "";
+                elements.sessionText.textContent = formatSession(payload);
+                renderPending(payload);
+                showResult(payload.message || "待确认商品已完成分配", true);
+                playBeep();
+            } catch (error) {
+                showError(error);
+                try { await loadServerSession(); } catch (_) {}
+            } finally {
+                state.pendingSubmitting = false;
+                elements.pendingConfirmButton.disabled = elements.pendingPanel.hidden;
+                armHidCapture();
+            }
         }
 
         async function sendEnvelope(envelope, refreshed = false) {
@@ -671,12 +1070,12 @@
                 .normalize("NFKC")
                 .replace(/\s+/g, "");
             const packageMatch = command.match(/^([1-9]\d{0,6})(?:包|箱)$/);
-            const pieceMatch = command.match(/^实际([1-9]\d{0,6})件$/);
+            const pieceMatch = command.match(/^(?:实际)?([1-9]\d{0,6})件$/);
             const match = packageMatch || pieceMatch;
             const quantity = match ? Number.parseInt(match[1], 10) : 0;
             const unit = packageMatch ? "package" : "piece";
             if (!match || quantity > 1000000) {
-                showError("请输入“50包”或“实际11件”，数量范围 1 至 1000000");
+                showError("请输入“50包”或“11件”，数量范围 1 至 1000000");
                 elements.quantityInput.focus();
                 return;
             }
@@ -697,7 +1096,7 @@
                 transport: "telegram_web",
                 raw_value: unit === "package"
                     ? `${target.barcode}改为${quantity}包`
-                    : `${target.barcode}实际${quantity}件`,
+                    : `${quantity}件`,
                 adjusted_at: new Date().toISOString(),
                 local_sequence: sequence,
                 schema_version: "1.0",
@@ -954,14 +1353,22 @@
             if (
                 state.cameraActive
                 || state.quantitySubmitting
+                || state.pendingSubmitting
                 || document.activeElement === elements.quantityInput
+                || document.activeElement === elements.pendingBarcode
+                || document.activeElement === elements.pendingQuantity
+                || document.activeElement === elements.pendingAllocations
             ) return;
             setTimeout(() => {
                 if (
                     state.cameraActive
                     || state.quantitySubmitting
+                    || state.pendingSubmitting
                     || document.hidden
                     || document.activeElement === elements.quantityInput
+                    || document.activeElement === elements.pendingBarcode
+                    || document.activeElement === elements.pendingQuantity
+                    || document.activeElement === elements.pendingAllocations
                 ) return;
                 try { elements.hidCapture.focus({ preventScroll: true }); }
                 catch (_) { elements.hidCapture.focus(); }
@@ -1090,9 +1497,8 @@
 
         async function bootstrap() {
             if (!state.legacyMode) {
-                // 常驻终端保持无业务选择；显式移库仍保留在旧单次兼容入口。
-                elements.tabMove.hidden = true;
-                elements.tabAuto.parentElement.style.gridTemplateColumns = "1fr";
+                // 常驻终端只有出库扫码，隐藏占用首屏的模式选择。
+                elements.tabAuto.parentElement.hidden = true;
             }
 
             elements.hidCapture.addEventListener("keydown", handleHidKeydown);
@@ -1129,6 +1535,18 @@
             });
             elements.quantityInput.addEventListener("focus", resetHidFrame);
             elements.quantityConfirmButton.addEventListener("click", submitQuantityAdjustment);
+            elements.pendingSelect.addEventListener("change", updatePendingDetail);
+            elements.pendingBarcode.addEventListener("focus", resetHidFrame);
+            elements.pendingQuantity.addEventListener("focus", resetHidFrame);
+            elements.pendingBarcode.addEventListener("keydown", event => {
+                if (event.key !== "Enter" && event.key !== "Tab") return;
+                event.preventDefault();
+                addPendingAllocation();
+            });
+            elements.pendingAddButton.addEventListener("click", addPendingAllocation);
+            elements.pendingAllocations.addEventListener("focus", resetHidFrame);
+            elements.pendingAllocations.addEventListener("input", renderPendingAllocationList);
+            elements.pendingConfirmButton.addEventListener("click", submitPendingResolution);
             elements.retryButton.addEventListener("click", async () => {
                 resetHidFrame();
                 elements.hidPreview.textContent = "输入框已就绪";
