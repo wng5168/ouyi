@@ -353,6 +353,7 @@
             lastProduct: null,
             quantitySubmitting: false,
             pendingSubmitting: false,
+            pendingEditorKey: "",
             activeSession: null,
             attentionItems: [],
             attentionRefreshPromise: null,
@@ -671,6 +672,16 @@
             elements.pendingAllocationList.replaceChildren();
         }
 
+        function pendingEditorKey(line) {
+            if (!line) return "";
+            const session = state.activeSession || {};
+            return [
+                session.order_id || "",
+                session.session_started_at || "",
+                line.line_id || "",
+            ].join(":");
+        }
+
         function addPendingAllocation() {
             const line = selectedPendingLine();
             const barcode = normalizeScanValue(elements.pendingBarcode.value);
@@ -704,32 +715,49 @@
         function renderPending(payload) {
             if (!payload || payload.status === "idle") {
                 state.activeSession = null;
+                state.pendingEditorKey = "";
                 elements.pendingPanel.hidden = true;
                 elements.pendingSelect.replaceChildren();
+                delete elements.pendingSelect.dataset.signature;
                 elements.pendingAllocations.value = "";
                 return;
             }
             if (!Array.isArray(payload.pending_lines)) return;
+            const previousLineId = elements.pendingSelect.value;
             state.activeSession = payload;
             const pendingLines = payload.pending_lines;
             elements.pendingPanel.hidden = pendingLines.length === 0;
             elements.pendingTitle.textContent = `⚠️ 先处理待确认商品 · ${pendingLines.length} 条`;
-            elements.pendingSelect.replaceChildren();
-            for (const line of pendingLines) {
-                const option = document.createElement("option");
-                option.value = line.line_id;
-                option.textContent = `${line.sku || line.line_id} · ${line.quantity}件`;
-                elements.pendingSelect.appendChild(option);
+            const signature = JSON.stringify(
+                pendingLines.map(line => [line.line_id, line.sku || "", line.quantity])
+            );
+            if (elements.pendingSelect.dataset.signature !== signature) {
+                elements.pendingSelect.replaceChildren();
+                for (const line of pendingLines) {
+                    const option = document.createElement("option");
+                    option.value = line.line_id;
+                    option.textContent = `${line.sku || line.line_id} · ${line.quantity}件`;
+                    elements.pendingSelect.appendChild(option);
+                }
+                elements.pendingSelect.dataset.signature = signature;
             }
-            const line = pendingLines[0];
+            const line = pendingLines.find(item => item.line_id === previousLineId)
+                || pendingLines[0]
+                || null;
+            if (line) elements.pendingSelect.value = line.line_id;
             renderPendingDetail(line);
-            resetPendingEditor(line);
+            const editorKey = pendingEditorKey(line);
+            if (state.pendingEditorKey !== editorKey) {
+                state.pendingEditorKey = editorKey;
+                resetPendingEditor(line);
+            }
             elements.pendingConfirmButton.disabled = pendingLines.length === 0;
         }
 
         function updatePendingDetail() {
             const line = selectedPendingLine();
             renderPendingDetail(line);
+            state.pendingEditorKey = pendingEditorKey(line);
             resetPendingEditor(line);
         }
 
@@ -1355,6 +1383,7 @@
                 || state.quantitySubmitting
                 || state.pendingSubmitting
                 || document.activeElement === elements.quantityInput
+                || document.activeElement === elements.pendingSelect
                 || document.activeElement === elements.pendingBarcode
                 || document.activeElement === elements.pendingQuantity
                 || document.activeElement === elements.pendingAllocations
@@ -1366,6 +1395,7 @@
                     || state.pendingSubmitting
                     || document.hidden
                     || document.activeElement === elements.quantityInput
+                    || document.activeElement === elements.pendingSelect
                     || document.activeElement === elements.pendingBarcode
                     || document.activeElement === elements.pendingQuantity
                     || document.activeElement === elements.pendingAllocations
@@ -1565,7 +1595,10 @@
             elements.closeButton.addEventListener("click", () => tg.close());
             window.addEventListener("online", () => processQueue());
             window.addEventListener("focus", armHidCapture);
-            document.addEventListener("pointerup", armHidCapture);
+            document.addEventListener("pointerup", event => {
+                if (event.target === elements.pendingSelect) return;
+                armHidCapture();
+            });
             document.addEventListener("visibilitychange", () => {
                 if (!document.hidden) {
                     armHidCapture();
