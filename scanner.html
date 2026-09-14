@@ -551,7 +551,9 @@
                 const barcode = String(payload.barcode);
                 const retained = state.attentionItems.filter(item => item.barcode !== barcode);
                 let status = "";
-                if (Number(payload.expected_quantity) <= 0 && Number(payload.actual_quantity) > 0) {
+                if (Number(payload.expected_quantity) <= 0 && (
+                    Number(payload.actual_quantity) > 0 || payload.warning_code === "unexpected_product"
+                )) {
                     status = "unexpected";
                 } else if (Number(payload.actual_quantity) > Number(payload.expected_quantity)) {
                     status = "over";
@@ -591,7 +593,9 @@
                 const meta = document.createElement("div");
                 meta.className = "attention-item-meta";
                 if (item.status === "unexpected") {
-                    meta.textContent = `订单 0 件 · 已扫 ${item.actual_quantity} 件`;
+                    meta.textContent = Number(item.actual_quantity) === 0
+                        ? "数量未确认（未计入件数）· 请核对条码；误扫须移除"
+                        : `订单 0 件 · 已扫 ${item.actual_quantity} 件`;
                 } else {
                     const difference = Math.abs(Number(item.difference_quantity || 0));
                     meta.textContent = `应配 ${item.expected_quantity} 件 · 已扫 ${item.actual_quantity} 件 · ${label} ${difference} 件`;
@@ -1377,32 +1381,87 @@
             }
         }
 
+        function hidEditingTarget(target) {
+            return (
+                target === elements.quantityInput
+                || target === elements.pendingSelect
+                || target === elements.pendingBarcode
+                || target === elements.pendingQuantity
+                || target === elements.pendingAllocations
+                || (target instanceof HTMLInputElement && target !== elements.hidCapture)
+                || target instanceof HTMLTextAreaElement
+                || Boolean(target && target.isContentEditable)
+            );
+        }
+
+        function focusHidCaptureNow() {
+            if (
+                state.cameraActive
+                || state.quantitySubmitting
+                || state.pendingSubmitting
+                || document.hidden
+                || hidEditingTarget(document.activeElement)
+            ) return false;
+            try { elements.hidCapture.focus({ preventScroll: true }); }
+            catch (_) { elements.hidCapture.focus(); }
+            return document.activeElement === elements.hidCapture;
+        }
+
+        function captureHidKeyBeforeFocus(event) {
+            if (
+                state.cameraActive
+                || state.quantitySubmitting
+                || state.pendingSubmitting
+                || state.composing
+                || event.defaultPrevented
+                || event.ctrlKey
+                || event.altKey
+                || event.metaKey
+                || event.target === elements.hidCapture
+                || hidEditingTarget(event.target)
+            ) return;
+            const code = String(event.code || "");
+            const key = String(event.key || "");
+            const terminator = (
+                code === "Enter"
+                || code === "NumpadEnter"
+                || code === "Tab"
+                || key === "Enter"
+                || key === "Tab"
+                || event.keyCode === 13
+                || event.keyCode === 9
+            );
+            const character = (
+                key.length === 1 && /^[A-Za-z0-9+._'-]$/.test(key)
+            ) ? key : "";
+            if (!character && !(terminator && normalizeScanValue(elements.hidCapture.value))) {
+                return;
+            }
+            event.preventDefault();
+            focusHidCaptureNow();
+            if (character) {
+                elements.hidCapture.value += character;
+                scheduleHidInput();
+            } else {
+                setTimeout(flushHidFrame, 0);
+            }
+        }
+
         function armHidCapture() {
             if (
                 state.cameraActive
                 || state.quantitySubmitting
                 || state.pendingSubmitting
-                || document.activeElement === elements.quantityInput
-                || document.activeElement === elements.pendingSelect
-                || document.activeElement === elements.pendingBarcode
-                || document.activeElement === elements.pendingQuantity
-                || document.activeElement === elements.pendingAllocations
+                || hidEditingTarget(document.activeElement)
             ) return;
-            setTimeout(() => {
-                if (
-                    state.cameraActive
-                    || state.quantitySubmitting
-                    || state.pendingSubmitting
-                    || document.hidden
-                    || document.activeElement === elements.quantityInput
-                    || document.activeElement === elements.pendingSelect
-                    || document.activeElement === elements.pendingBarcode
-                    || document.activeElement === elements.pendingQuantity
-                    || document.activeElement === elements.pendingAllocations
-                ) return;
-                try { elements.hidCapture.focus({ preventScroll: true }); }
-                catch (_) { elements.hidCapture.focus(); }
-            }, 80);
+            setTimeout(focusHidCaptureNow, 80);
+        }
+
+        function restoreHidCaptureAfterPageResume() {
+            resetHidFrame();
+            elements.hidPreview.textContent = "输入框已就绪";
+            focusHidCaptureNow();
+            armHidCapture();
         }
 
         function switchMode(mode) {
@@ -1533,6 +1592,7 @@
 
             elements.hidCapture.addEventListener("keydown", handleHidKeydown);
             elements.hidCapture.addEventListener("input", scheduleHidInput);
+            document.addEventListener("keydown", captureHidKeyBeforeFocus, true);
             elements.hidCapture.addEventListener("beforeinput", event => {
                 if (event.inputType !== "insertLineBreak") return;
                 event.preventDefault();
@@ -1594,14 +1654,14 @@
             });
             elements.closeButton.addEventListener("click", () => tg.close());
             window.addEventListener("online", () => processQueue());
-            window.addEventListener("focus", armHidCapture);
+            window.addEventListener("focus", restoreHidCaptureAfterPageResume);
             document.addEventListener("pointerup", event => {
                 if (event.target === elements.pendingSelect) return;
                 armHidCapture();
             });
             document.addEventListener("visibilitychange", () => {
                 if (!document.hidden) {
-                    armHidCapture();
+                    restoreHidCaptureAfterPageResume();
                     processQueue();
                 }
             });
