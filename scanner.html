@@ -287,7 +287,7 @@
         </div>
     </main>
 
-    <section id="bundle-confirm-backdrop" class="bundle-dialog-backdrop" hidden
+    <section id="bundle-confirm-backdrop" class="bundle-dialog-backdrop" hidden tabindex="-1"
              role="dialog" aria-modal="true" aria-labelledby="bundle-confirm-title">
         <div class="bundle-dialog">
             <h2 id="bundle-confirm-title" class="bundle-dialog-title">核对组合商品</h2>
@@ -962,7 +962,8 @@
                 ? "⚠️ 确认后至少一款会超过订单数量；请仔细核对，确认后仍可整组撤销。"
                 : "确认即表示整套组合已经实物核验，并一次性计入以上全部商品；确认后可整组撤销。";
             elements.bundleBackdrop.hidden = false;
-            elements.bundleConfirmButton.focus();
+            // 不聚焦确认按钮，避免扫码枪附带的 Enter/CR 意外触发整组入账。
+            elements.bundleBackdrop.focus();
             return new Promise(resolve => {
                 const finish = confirmed => {
                     elements.bundleCancelButton.onclick = null;
