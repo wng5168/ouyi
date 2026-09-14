@@ -163,6 +163,40 @@
         .pending-advanced summary { cursor: pointer; }
         #pending-confirm-btn { width: 100%; margin-top: 9px; background: var(--warning); color: #fff; border-color: var(--warning); }
         .pending-help { margin-top: 8px; color: var(--hint); font-size: 14px; line-height: 1.45; }
+        .bundle-dialog-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: grid;
+            place-items: center;
+            padding: 16px;
+            background: rgba(8, 22, 34, 0.64);
+        }
+        .bundle-dialog-backdrop[hidden] { display: none; }
+        .bundle-dialog {
+            width: min(620px, 100%);
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            border-radius: 16px;
+            padding: 17px;
+            background: var(--card);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+        }
+        .bundle-dialog-title { margin: 0; font-size: 21px; }
+        .bundle-dialog-summary { margin-top: 8px; color: var(--hint); line-height: 1.45; }
+        .bundle-component-list { display: grid; gap: 7px; margin-top: 13px; }
+        .bundle-component {
+            border-radius: 9px;
+            padding: 9px 10px;
+            background: var(--bg);
+            line-height: 1.35;
+        }
+        .bundle-component-main { font-weight: 800; overflow-wrap: anywhere; }
+        .bundle-component-meta { margin-top: 3px; color: var(--hint); font-size: 13px; }
+        .bundle-component.over { border-left: 4px solid var(--danger); }
+        .bundle-dialog-warning { margin-top: 12px; color: var(--warning); font-weight: 700; line-height: 1.45; }
+        .bundle-dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
+        #bundle-confirm-btn { background: var(--ok); color: #fff; border-color: var(--ok); }
         .move-step { color: var(--accent); font-weight: 800; }
         @media (max-width: 420px) {
             h1 { font-size: 22px; }
@@ -253,6 +287,20 @@
         </div>
     </main>
 
+    <section id="bundle-confirm-backdrop" class="bundle-dialog-backdrop" hidden
+             role="dialog" aria-modal="true" aria-labelledby="bundle-confirm-title">
+        <div class="bundle-dialog">
+            <h2 id="bundle-confirm-title" class="bundle-dialog-title">核对组合商品</h2>
+            <div id="bundle-confirm-summary" class="bundle-dialog-summary"></div>
+            <div id="bundle-component-list" class="bundle-component-list"></div>
+            <div id="bundle-confirm-warning" class="bundle-dialog-warning"></div>
+            <div class="bundle-dialog-actions">
+                <button id="bundle-cancel-btn" class="action-btn" type="button">取消，不计数</button>
+                <button id="bundle-confirm-btn" class="action-btn" type="button">确认整组入账</button>
+            </div>
+        </div>
+    </section>
+
     <script>
         "use strict";
 
@@ -310,6 +358,13 @@
             attentionPanel: document.getElementById("attention-panel"),
             attentionHeading: document.getElementById("attention-heading"),
             attentionList: document.getElementById("attention-list"),
+            bundleBackdrop: document.getElementById("bundle-confirm-backdrop"),
+            bundleTitle: document.getElementById("bundle-confirm-title"),
+            bundleSummary: document.getElementById("bundle-confirm-summary"),
+            bundleComponentList: document.getElementById("bundle-component-list"),
+            bundleWarning: document.getElementById("bundle-confirm-warning"),
+            bundleCancelButton: document.getElementById("bundle-cancel-btn"),
+            bundleConfirmButton: document.getElementById("bundle-confirm-btn"),
         };
 
         function resolveEntryMode() {
@@ -354,6 +409,7 @@
             quantitySubmitting: false,
             pendingSubmitting: false,
             pendingEditorKey: "",
+            bundleConfirming: false,
             activeSession: null,
             attentionItems: [],
             attentionRefreshPromise: null,
@@ -447,6 +503,21 @@
         }
 
         function requestPayload(envelope) {
+            if (envelope.kind === "bundle_confirm") {
+                return {
+                    action: "confirm_bundle",
+                    event_id: envelope.event_id,
+                    order_id: envelope.order_id,
+                    revision: envelope.revision,
+                    session_started_at: envelope.session_started_at,
+                    target_event_id: envelope.target_event_id,
+                    bundle_code: envelope.barcode,
+                    transport: envelope.transport,
+                    scanned_at: envelope.scanned_at,
+                    local_sequence: envelope.local_sequence,
+                    schema_version: envelope.schema_version,
+                };
+            }
             if (envelope.kind === "quantity_override") {
                 return {
                     event_id: envelope.event_id,
@@ -813,6 +884,10 @@
             }
             if (payload.status === "query_result") {
                 showResult(payload.message || `已查询 ${payload.reference || displayScanValue(envelope.barcode)}`, true);
+            } else if (payload.status === "bundle_confirmation_required") {
+                showResult(payload.message || `${displayScanValue(envelope.barcode)}：等待对货确认`, true);
+            } else if (payload.status === "bundle_accepted") {
+                showResult(payload.message || `${displayScanValue(envelope.barcode)}：组合已入账`, true);
             } else if (payload.status === "order_started") {
                 showResult(payload.message || `订单 ${payload.order_id} 已载入`, true);
             } else if (payload.status === "adjusted") {
@@ -829,7 +904,7 @@
                 showResult(payload.message || `${displayScanValue(envelope.barcode)}：服务器已确认`, true);
             }
             if (
-                payload.status === "accepted"
+                (payload.status === "accepted" || payload.status === "bundle_accepted")
                 && (
                     payload.warning_code
                     || (
@@ -840,6 +915,65 @@
             ) {
                 refreshAttentionAfterCriticalAck();
             }
+        }
+
+        function buildBundleConfirmationEnvelope(payload, envelope) {
+            return {
+                ...envelope,
+                kind: "bundle_confirm",
+                order_id: String(payload.order_id || ""),
+                revision: Number(payload.revision || 0),
+                session_started_at: String(payload.session_started_at || ""),
+                target_event_id: Number(payload.confirmation_last_event_id || 0),
+            };
+        }
+
+        function requestBundleConfirmation(payload, envelope) {
+            const components = Array.isArray(payload.bundle_components)
+                ? payload.bundle_components
+                : [];
+            if (!components.length) {
+                return Promise.reject(new Error("组合码没有返回可核对的商品明细"));
+            }
+            state.bundleConfirming = true;
+            elements.bundleTitle.textContent = `核对组合商品 · ${displayScanValue(payload.bundle_code)}`;
+            elements.bundleSummary.textContent = `${payload.bundle_name || "组合销售"}｜${components.length} 款，共 ${Number(payload.bundle_quantity || 0)} 件`;
+            elements.bundleComponentList.replaceChildren();
+            let hasOverage = false;
+            for (const item of components) {
+                const projected = Number(item.projected_quantity || 0);
+                const expected = Number(item.expected_quantity || 0);
+                const row = document.createElement("div");
+                row.className = "bundle-component";
+                if (projected > expected) {
+                    row.classList.add("over");
+                    hasOverage = true;
+                }
+                const main = document.createElement("div");
+                main.className = "bundle-component-main";
+                main.textContent = `${item.sku || "未标注货号"} · ${item.barcode} × ${item.quantity} 件`;
+                const meta = document.createElement("div");
+                meta.className = "bundle-component-meta";
+                meta.textContent = `当前 ${item.actual_quantity} / 应发 ${item.expected_quantity} 件；确认后 ${item.projected_quantity} 件`;
+                row.append(main, meta);
+                elements.bundleComponentList.appendChild(row);
+            }
+            elements.bundleWarning.textContent = hasOverage
+                ? "⚠️ 确认后至少一款会超过订单数量；请仔细核对，确认后仍可整组撤销。"
+                : "确认即表示整套组合已经实物核验，并一次性计入以上全部商品；确认后可整组撤销。";
+            elements.bundleBackdrop.hidden = false;
+            elements.bundleConfirmButton.focus();
+            return new Promise(resolve => {
+                const finish = confirmed => {
+                    elements.bundleCancelButton.onclick = null;
+                    elements.bundleConfirmButton.onclick = null;
+                    elements.bundleBackdrop.hidden = true;
+                    state.bundleConfirming = false;
+                    resolve(confirmed ? buildBundleConfirmationEnvelope(payload, envelope) : null);
+                };
+                elements.bundleCancelButton.onclick = () => finish(false);
+                elements.bundleConfirmButton.onclick = () => finish(true);
+            });
         }
 
         function openDatabase() {
@@ -909,6 +1043,7 @@
                 envelope => isCurrentQueueOwner(envelope)
                     && (
                         envelope.kind === "quantity_override"
+                        || envelope.kind === "bundle_confirm"
                         || envelope.kind === undefined
                         || envelope.kind === "scan"
                     )
@@ -1069,7 +1204,7 @@
             try {
                 const path = envelope.kind === "quantity_override"
                     ? QUANTITY_PATH
-                    : state.dispatchPath;
+                    : (envelope.kind === "bundle_confirm" ? SESSION_ACTION_PATH : state.dispatchPath);
                 return await fetchJson(`${apiBase}${path}`, {
                     method: "POST",
                     headers: authorizedHeaders(),
@@ -1169,18 +1304,41 @@
                             "",
                             envelope.kind === "quantity_override"
                                 ? "正在发送数量调整…"
-                                : "正在发送扫码事件…"
+                                : (envelope.kind === "bundle_confirm"
+                                    ? "正在确认组合商品…"
+                                    : "正在发送扫码事件…")
                         );
                         const payload = await sendEnvelope(envelope);
                         await deletePending(envelope.event_id);
                         renderAck(payload, envelope);
                         setConnection("online", "扫码服务已连接");
+                        if (payload.status === "bundle_confirmation_required") {
+                            const confirmation = await requestBundleConfirmation(
+                                payload,
+                                envelope,
+                            );
+                            if (!confirmation) {
+                                showResult(`${displayScanValue(envelope.barcode)}：已取消组合确认，本次未计数`, true);
+                                continue;
+                            }
+                            await putPending(confirmation);
+                            await updateQueueCount();
+                            showResult(`${displayScanValue(envelope.barcode)}：已确认对货，正在整组入账…`, true);
+                            continue;
+                        }
+                        if (payload.status === "bundle_accepted") playBeep();
                     } catch (error) {
                         if (error.status === 422) {
                             await deletePending(envelope.event_id);
                             const detail = String(error.message || "扫码内容无法识别");
                             if (envelope.kind === "quantity_override") {
                                 showError(`${detail}；数量未修改，可返回 Telegram 发送“${envelope.raw_value}”`);
+                                setConnection("online", "扫码服务已连接");
+                                continue;
+                            }
+                            if (envelope.kind === "bundle_confirm") {
+                                showError(`${detail}；组合未计数，请重新扫描组合码核对`);
+                                try { await loadServerSession(); } catch (_) {}
                                 setConnection("online", "扫码服务已连接");
                                 continue;
                             }
@@ -1193,9 +1351,16 @@
                             continue;
                         }
                         if (error.status === 409) {
-                            if (envelope.kind === "quantity_override") {
+                            if (
+                                envelope.kind === "quantity_override"
+                                || envelope.kind === "bundle_confirm"
+                            ) {
                                 await deletePending(envelope.event_id);
-                                showError(`${error.message || error}；陈旧数量调整已取消`);
+                                showError(
+                                    envelope.kind === "bundle_confirm"
+                                        ? `${error.message || error}；组合未计数，请重新扫描组合码核对`
+                                        : `${error.message || error}；陈旧数量调整已取消`
+                                );
                                 setLastProduct();
                                 try { await loadServerSession(); } catch (_) {}
                                 setConnection("online", "扫码服务已连接");
@@ -1353,12 +1518,12 @@
         }
 
         function scheduleHidInput() {
-            if (state.cameraActive) return;
+            if (state.cameraActive || state.bundleConfirming) return;
             scheduleHidFrameTimeout();
         }
 
         function handleHidKeydown(event) {
-            if (state.cameraActive) return;
+            if (state.cameraActive || state.bundleConfirming) return;
             const code = String(event.code || "");
             const key = String(event.key || "");
             const terminator = (
@@ -1410,6 +1575,7 @@
         function captureHidKeyBeforeFocus(event) {
             if (
                 state.cameraActive
+                || state.bundleConfirming
                 || state.quantitySubmitting
                 || state.pendingSubmitting
                 || state.composing
@@ -1450,6 +1616,7 @@
         function armHidCapture() {
             if (
                 state.cameraActive
+                || state.bundleConfirming
                 || state.quantitySubmitting
                 || state.pendingSubmitting
                 || hidEditingTarget(document.activeElement)
@@ -1569,7 +1736,7 @@
         async function onCameraScan(decodedText) {
             const normalized = normalizeScanValue(decodedText);
             const now = Date.now();
-            if (state.cameraBusy || (normalized === state.lastCameraValue && now - state.lastCameraAt < CAMERA_DEBOUNCE_MS)) return;
+            if (state.bundleConfirming || state.cameraBusy || (normalized === state.lastCameraValue && now - state.lastCameraAt < CAMERA_DEBOUNCE_MS)) return;
             state.cameraBusy = true;
             state.lastCameraValue = normalized;
             state.lastCameraAt = now;
@@ -1697,3 +1864,4 @@
     </script>
 </body>
 </html>
+
